@@ -40,9 +40,6 @@ def match_bounding_boxes(matches, prev_frame, curr_frame):
     bb_temp_matches = []
     c = 0
     for match_pair in matches:
-        # print(match_pair)
-        # Assuming you've already applied Lowe's ratio test
-        # if match_pair[0].distance < 0.95 * match_pair[1].distance:
         if True: 
             best_match = match_pair #[0]
             prev_img_box_id = -1
@@ -102,32 +99,9 @@ def match_bounding_boxes(matches, prev_frame, curr_frame):
             curr_frame.matched_3Dpoints.append(curr_frame.cone_3Dpoints[best_match[1], 6:9])
     return bb_best_matches
 
-def detect_keypoints_and_descriptors(frame: State):
-    mask = np.zeros_like(frame.image)
-    mask[75:600, :] = 255
-    mask[465:800, 550:1250] = 0
-    masked_gray = cv2.bitwise_and(frame.image, mask)
-    # Initialize ORB detector
-    orb = cv2.ORB_create(2400)
-    # Detect keypoints and compute descriptors
-    keypoints, descriptors = orb.detectAndCompute(masked_gray, None)
-    # Assign keypoints and descriptors to the frame
-    frame.keypoints = keypoints
-    frame.descriptors = descriptors
-    
-    # Filtering all keypoints and descriptors above the threshold
-    keypoints_array = np.array([kp.pt for kp in keypoints])
-    # Create a boolean mask where y > y_threshold
-    mask = keypoints_array[:, 1] > 300
-    # Filter keypoints using the mask
-    frame.kptsAbove300 = [kp for kp, m in zip(keypoints, mask) if m]
-    # Filter descriptors using the same mask
-    frame.desAbove300 = descriptors[mask] if descriptors is not None else None
-
 def main():
-    frame_count = 106
+    frame_count = 1
     camera_pose = np.eye(4)
-    K = np.loadtxt("K_matrix.txt")
     start = time.process_time()
     while True:
         print("FRAME_COUNT : " + str(frame_count))
@@ -136,8 +110,8 @@ def main():
         # print(frame_count)
         prev_state = State(frame_count, K)
         curr_state = State(frame_count+1, K) 
-        detect_keypoints_and_descriptors(prev_state)
-        detect_keypoints_and_descriptors(curr_state)
+        prev_state.detect_keypoints_and_descriptors()
+        curr_state.detect_keypoints_and_descriptors()
 
         index_params = dict(algorithm=6,
                         table_number=6,
@@ -195,8 +169,8 @@ def main():
         bb_best_matches = match_bounding_boxes(inlier_matches, prev_state, curr_state)
         print("Best matches: ", bb_best_matches)
         # print("Matched ")
-        draw_match_boxes(bb_best_matches, prev_state, curr_state)
-        plt.show()
+        # draw_match_boxes(bb_best_matches, prev_state, curr_state)
+        # plt.show()
         
         # print("Pixels Matching: ", np.array(prev_state.matched_pixels))
         # print("Matched pixels", np.array(curr_state.matched_pixels))
@@ -241,10 +215,10 @@ def main():
                 new_R = -new_R
                 new_t = -new_t
             scale = 1
-            matched1_boxes3D = np.array(prev_state.matched_3Dpoints)
-            matched1_boxes = np.array(prev_state.matched_pixels)
-            matched2_boxes = np.array(curr_state.matched_pixels)
-            scale = compute_weighted_scale_factor(matched1_boxes3D, matched1_boxes, matched2_boxes, new_R, new_t, K)
+            # matched1_boxes3D = np.array(prev_state.matched_3Dpoints)
+            # matched1_boxes = np.array(prev_state.matched_pixels)
+            # matched2_boxes = np.array(curr_state.matched_pixels)
+            # scale = compute_weighted_scale_factor(matched1_boxes3D, matched1_boxes, matched2_boxes, new_R, new_t, K)
             new_pose = np.column_stack((new_R, scale*new_t))
             # print(pixel_reproject_err(new_pose.ravel(), matched1_boxes3D.reshape(-1, 3), K, matched2_boxes.reshape(-1, 2)) )
             # get_approximate_odometry(matched2_boxes, matched1_boxes3D, new_pose, K, )

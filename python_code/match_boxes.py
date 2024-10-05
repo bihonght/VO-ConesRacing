@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from utils import * 
-from State import State
+from vo.State import State
 from odom import compute_weighted_scale_factor, pixel_reproject_err
 def draw_match_boxes(matched_boxes, prev_frame, curr_frame): 
     fig, axes = plt.subplots(1, 2, figsize=(15, 10))
@@ -108,7 +108,7 @@ def detect_keypoints_and_descriptors(frame: State):
     mask[465:800, 550:1250] = 0
     masked_gray = cv2.bitwise_and(frame.image, mask)
     # Initialize ORB detector
-    orb = cv2.ORB_create(2400)
+    orb = cv2.ORB_create(20000)
     # Detect keypoints and compute descriptors
     keypoints, descriptors = orb.detectAndCompute(masked_gray, None)
     # Assign keypoints and descriptors to the frame
@@ -125,7 +125,7 @@ def detect_keypoints_and_descriptors(frame: State):
     frame.desAbove300 = descriptors[mask] if descriptors is not None else None
 
 def main():
-    frame_count = 106
+    frame_count = 1
     camera_pose = np.eye(4)
     K = np.loadtxt("K_matrix.txt")
     start = time.process_time()
@@ -195,8 +195,8 @@ def main():
         bb_best_matches = match_bounding_boxes(inlier_matches, prev_state, curr_state)
         print("Best matches: ", bb_best_matches)
         # print("Matched ")
-        draw_match_boxes(bb_best_matches, prev_state, curr_state)
-        plt.show()
+        # draw_match_boxes(bb_best_matches, prev_state, curr_state)
+        # plt.show()
         
         # print("Pixels Matching: ", np.array(prev_state.matched_pixels))
         # print("Matched pixels", np.array(curr_state.matched_pixels))
@@ -244,7 +244,7 @@ def main():
             matched1_boxes3D = np.array(prev_state.matched_3Dpoints)
             matched1_boxes = np.array(prev_state.matched_pixels)
             matched2_boxes = np.array(curr_state.matched_pixels)
-            scale = compute_weighted_scale_factor(matched1_boxes3D, matched1_boxes, matched2_boxes, new_R, new_t, K)
+            # scale = compute_weighted_scale_factor(matched1_boxes3D, matched1_boxes, matched2_boxes, new_R, new_t, K)
             new_pose = np.column_stack((new_R, scale*new_t))
             # print(pixel_reproject_err(new_pose.ravel(), matched1_boxes3D.reshape(-1, 3), K, matched2_boxes.reshape(-1, 2)) )
             # get_approximate_odometry(matched2_boxes, matched1_boxes3D, new_pose, K, )
