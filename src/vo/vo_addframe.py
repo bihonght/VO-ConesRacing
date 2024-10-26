@@ -1,7 +1,7 @@
 import numpy as np 
 import cv2 
-
-from geometry import feature_matching
+from display import display
+from geometry import feature_matching, motion_estimate
 from common import common, params
 from vo.vo import VisualOdometry 
 from vo.State import State 
@@ -42,13 +42,21 @@ class VisualOdometry(VisualOdometry):
                 self.ref_.descriptors, self.curr_.descriptors, method_index, 
                 False, self.ref_.keypoints, self.curr_.keypoints,
                 max_matching_pixel_dist)
-
+            # ------------------ Match features checking --------------------------------
+            if params.display_init_matches: 
+                title = f"Matches with the {img_id}th frame and the REF frame {self.ref_.frame_id}"
+                display.draw_matches(self.ref_.image, self.curr_.image, self.curr_.matches_with_ref_, 
+                                    self.ref_.keypoints, self.curr_.keypoints, title)
             print(f"Number of matches with the 1st frame: {len(self.curr_.matches_with_ref_)}")
 
             # Estimate motion and triangulate points
             self.estimate_motion_and_3d_points()
             print(f"Number of inlier matches: {len(self.curr_.inliers_matches_for_3d_)}")
-
+            # ------------------ Match features checking --------------------------------
+            if params.display_init_matches_inliers:
+                title = f"Inlier Matches with the {img_id}th frame and the REF frame {self.ref_.frame_id}"
+                display.draw_matches(self.ref_.image, self.curr_.image, self.curr_.inliers_matches_with_ref_, 
+                                    self.ref_.keypoints, self.curr_.keypoints, title)
             # Check initialization condition
             print("\nCheck VO init conditions: ")
             if self.is_vo_good_to_init():
@@ -58,13 +66,16 @@ class VisualOdometry(VisualOdometry):
                 self.vo_state_ = self.VOState.DOING_TRACKING
                 print("Initialization success!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                
             else:
                 self.curr_.T_w_c_ = self.ref_.T_w_c_
                 print("Not initializing VO...")
+
         elif self.vo_state_ == self.VOState.DOING_TRACKING:
             print("\nDoing tracking")
             self.curr_.T_w_c_ = self.ref_.T_w_c_.copy()  # Initial estimation of the current pose
             is_pnp_good = self.pose_estimation_pnp()
+
             if not is_pnp_good:
                 num_matches = len(self.curr_.matches_with_map_)
                 print("PnP failed.")
@@ -73,36 +84,37 @@ class VisualOdometry(VisualOdometry):
                     print("    Computed world to camera transformation:")
                     print(self.curr_.T_w_c_)
                 print("PnP result has been reset as R=identity, t=zero.")
-            '''
             else:
                 self.call_bundle_adjustment()
                 # Insert a keyframe if motion is large
                 if self.check_large_move_for_add_key_frame(self.curr_, self.ref_):
                     max_matching_pixel_dist_triang = params.max_matching_pixel_dist_in_triangulation
                     method_index = params.feature_match_method_index_pnp
-                    geometry.match_features(
-                        self.ref_.descriptors_, self.curr_.descriptors_, self.curr_.matches_with_ref_,
-                        method_index, False, self.ref_.keypoints_, self.curr_.keypoints_,
+                    self.curr_.matches_with_ref_ = feature_matching.matchFeatures(
+                        self.ref_.descriptors, self.curr_.descriptors,
+                        method_index, False, self.ref_.keypoints, self.curr_.keypoints,
                         max_matching_pixel_dist_triang)
 
                     # Find inliers by epipolar constraint
-                    self.curr_.inliers_matches_with_ref_ = geometry.helper_find_inlier_matches_by_epipolar_cons(
-                        self.ref_.keypoints_, self.curr_.keypoints_, self.curr_.matches_with_ref_, K)
-
+                    self.curr_.inliers_matches_with_ref_ = motion_estimate.helper_find_inlier_matches_by_epipolar_cons(
+                        self.ref_.keypoints, self.curr_.keypoints, self.curr_.matches_with_ref_, K)
                     print(f"For triangulation: Matches with prev keyframe: {len(self.curr_.matches_with_ref_)}; Num inliers: {len(self.curr_.inliers_matches_with_ref_)}")
-
+                    if params.display_tracking_triangular: 
+                        title = f"Inlier Matches tracking with the {img_id}th frame and the REF frame {self.ref_.frame_id}"
+                        display.draw_matches(self.ref_.image, self.curr_.image, self.curr_.inliers_matches_with_ref_, 
+                                            self.ref_.keypoints, self.curr_.keypoints, title)
                     # Triangulate points
-                    self.curr_.inliers_pts3d_ = geometry.helper_triangulate_points(
-                        self.ref_.keypoints_, self.curr_.keypoints_,
+                    self.curr_.inliers_pts3d_ = motion_estimate.helper_triangulate_points(
+                        self.ref_.keypoints, self.curr_.keypoints,
                         self.curr_.inliers_matches_with_ref_, self.get_motion_from_frame1to2(self.curr_, self.ref_), K)
 
-                    self.retain_good_triangulation_result_()
+                    self.retain_good_triangulation_result()
 
                     # Update state
-                    self.push_curr_points_to_map_()
-                    self.optimize_map_()
-                    self.add_key_frame_(self.curr_)
-                '''
+                    self.push_curr_points_to_map()
+                    self.optimize_map()
+                    self.add_key_frame(self.curr_)
+
         # Print relative motion
         if self.vo_state_ == self.VOState.DOING_TRACKING:
             if not hasattr(self, "T_w_to_prev"):

@@ -53,7 +53,6 @@ def estiMotionByEssential(pts_in_img1, pts_in_img2, camera_intrinsics):
 def removeWrongRtOfHomography(pts_on_np1, pts_on_np2, inliers, Rs, ts, normals):
     """
     Removes incorrect R and t solutions based on visibility of points in front of the camera.
-
     Args:
         pts_on_np1 (list of cv2.Point2f): Points on the normalized plane from image 1.
         pts_on_np2 (list of cv2.Point2f): Points on the normalized plane from image 2.
@@ -61,7 +60,6 @@ def removeWrongRtOfHomography(pts_on_np1, pts_on_np2, inliers, Rs, ts, normals):
         Rs (list of np.ndarray): List of rotation matrices.
         ts (list of np.ndarray): List of translation vectors.
         normals (list of np.ndarray): List of normal vectors.
-    
     Returns:
         Updated Rs, ts, and normals by filtering out incorrect solutions.
     """
@@ -93,12 +91,10 @@ def removeWrongRtOfHomography(pts_on_np1, pts_on_np2, inliers, Rs, ts, normals):
 def estiMotionByHomography(pts_in_img1, pts_in_img2, camera_intrinsics):
     """
     Estimate motion by homography matrix, and recover rotation and translation.
-
     Args:
         pts_in_img1 (list of cv2.Point2f): Points from the first image.
         pts_in_img2 (list of cv2.Point2f): Points from the second image.
         camera_intrinsics (np.ndarray): Camera intrinsic matrix.
-
     Returns:
         homography_matrix (np.ndarray): The computed homography matrix.
         Rs (list of np.ndarray): List of rotation matrices.
@@ -107,7 +103,7 @@ def estiMotionByHomography(pts_in_img1, pts_in_img2, camera_intrinsics):
         inliers_index (list of int): List of inlier indices.
     """
     # Homography computation using RANSAC
-    ransac_reproj_threshold = 3.0  # Set the RANSAC reprojection threshold
+    ransac_reproj_threshold = 6.0  # Set the RANSAC reprojection threshold
     method = cv2.RANSAC
     
     # Find homography matrix with RANSAC

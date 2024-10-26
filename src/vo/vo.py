@@ -8,12 +8,13 @@ from typing import List, Optional, Dict
 # You need to implement or import these appropriately
 from vo.map import Map
 from vo.map_point import MapPoint
-from vo.State import State
+from vo.State import State, PtConn
 
 # import basics
 from common import params, common
 from geometry import motion_estimate, epipolar, feature_matching, camera
-
+from display import display
+from optimization import optimization
 # import optimization
 
 
@@ -52,7 +53,6 @@ class VisualOdometry():
         self.matched_pts_2d_idx_: List[int] = []
         
     # Public Methods
-        
     def is_initialized(self) -> bool:
         """
         Check if visual odometry is initialized.
@@ -100,12 +100,6 @@ class VisualOdometry():
         # (2) inliers indices,
         # (3) triangulated points
 
-        list_R: List[np.ndarray] = []
-        list_t: List[np.ndarray] = []
-        list_normal: List[np.ndarray] = []
-        list_matches: List[List[cv2.DMatch]] = []
-        sols_pts3d_in_cam1_by_triang: List[List[np.ndarray]] = []
-
         is_print_res = False
         is_frame_cam2_to_cam1 = True
         is_calc_homo = True
@@ -117,11 +111,9 @@ class VisualOdometry():
                                                                                                                                                                          self.curr_.matches_with_ref_, K,  
                                                                                                                                                                          is_print_res, is_calc_homo, 
                                                                                                                                                                          is_frame_cam2_to_cam1)
-
         if best_sol < 0 or best_sol >= len(list_R):
             print("No valid solution found for relative pose estimation.")
             return
-
         # -- Only retain the data of the best solution
         R_curr_to_prev = list_R[best_sol]
         t_curr_to_prev = list_t[best_sol]
@@ -137,7 +129,6 @@ class VisualOdometry():
         Rt = common.convert_rt_to_T(R_curr_to_prev, t_curr_to_prev)
         T = self.ref_.T_w_c_ @ np.linalg.inv(Rt)
         self.curr_.T_w_c_ = T.copy()
-
         # Get points that are used for triangulating new map points
         # modified updated #################################
         self.curr_.inliers_matches_with_ref_ = inlier_matches
@@ -159,7 +150,6 @@ class VisualOdometry():
 
         for i, p in enumerate(self.curr_.inliers_pts3d_):
             self.curr_.inliers_pts3d_[i] = common.scale_point_pos(p, scale)
-
         # Update camera pose after scaling
         Rt_scaled = common.convert_rt_to_T(R_curr_to_prev, t_curr_to_prev)
         T_scaled = self.ref_.T_w_c_ @ np.linalg.inv(Rt_scaled)
@@ -193,7 +183,7 @@ class VisualOdometry():
         # Check Criteria 1: Mean distance between keypoints
         mean_dist = feature_matching.compute_mean_dist_between_keypoints(init_kpts, curr_kpts, matches)
         print(f"Pixel movement of matched keypoints: {mean_dist:.1f}. Threshold is {min_pixel_dist:.1f}")
-        criteria_1 = mean_dist > min_pixel_dist
+        criteria_1 = mean_dist > 40 #min_pixel_dist
         
         # Check Criteria 2: Median triangulation angle
         angles = self.curr_.triangulation_angles_of_inliers_
@@ -251,16 +241,17 @@ class VisualOdometry():
         old_angles = angles.copy()
         angles.clear()
         for i in range(N):
-            if old_angles[i] < min_triang_angle or old_angles[i] / median_angle > max_ratio:
+            if old_angles[i] < min_triang_angle:# or old_angles[i] / median_angle > max_ratio:
                 continue
             dmatch = self.curr_.inliers_matches_with_ref_[i]
             self.curr_.inliers_matches_for_3d_.append(dmatch)
             self.curr_.inliers_pts3d_.append(old_inlier_points[i])
             angles.append(old_angles[i])
-
+        print(f"3D points before retain: {N}, after retain: {len(angles)}")
         self.curr_.triangulation_angles_of_inliers_ = angles
         return
-    # Tracking Methods
+    # --------------------------------------------------
+    # -------------- Tracking Methods ------------------
     def check_large_move_for_add_key_frame(self, curr: State, ref: State) -> bool:
         """
         Check if the movement between current frame and reference frame is large enough to add a keyframe.
@@ -277,39 +268,6 @@ class VisualOdometry():
         
         return moved_dist > min_dist
     
-    def optimize_map(self):
-        """
-        Optimize the map by removing unreliable map points.
-        """
-        default_erase = 0.1
-        map_point_erase_ratio = default_erase
-        
-        to_erase = []
-        for map_id, mappoint in self.map_.map_points_.items():
-            if not self.curr_.is_in_frame(mappoint.pos_):
-                to_erase.append(map_id)
-                continue
-            
-            match_ratio = mappoint.matched_times_ / mappoint.visible_times_
-            if match_ratio < map_point_erase_ratio:
-                to_erase.append(map_id)
-                continue
-            
-            angle = self.get_view_angle(self.curr_, mappoint)
-            if angle > (np.pi / 4):
-                to_erase.append(map_id)
-                continue
-        
-        for map_id in to_erase:
-            del self.map_.map_points_[map_id]
-        
-        if len(self.map_.map_points_) > 1000:
-            map_point_erase_ratio += 0.05
-        else:
-            map_point_erase_ratio = default_erase
-        
-        print(f"Map points: {len(self.map_.map_points_)}")
-    
     def pose_estimation_pnp(self) -> bool:
         """
         Estimate the camera pose using PnP.
@@ -320,109 +278,88 @@ class VisualOdometry():
         # Get 3D-2D correspondences
         candidate_mappoints_in_map, candidate_2d_pts_in_image, corresponding_descriptors = self.get_mappoints_in_current_view()
         candidate_kpts = common.pts2keypts(candidate_2d_pts_in_image)
-        
+        if params.display_pnp:  
+            display.draw_keypoints(self.ref_.image, candidate_kpts)
         # Feature matching
         max_dist = params.max_matching_pixel_dist_in_pnp
         method_index = params.feature_match_method_index_pnp
-        curr_matches_with_map = feature_matching.matchFeatures(
-            corresponding_descriptors, self.curr_.descriptors_,
+        self.curr_.matches_with_map_ = feature_matching.matchFeatures(
+            corresponding_descriptors, self.curr_.descriptors,
             method_index,
-            cross_check=False,
-            query_kpts=candidate_kpts,
-            train_kpts=self.curr_.keypoints_,
-            max_dist=max_dist
+            is_print_res=False,
+            keypoints_1=candidate_kpts,
+            keypoints_2=self.curr_.keypoints,
+            max_matching_pixel_dist=max_dist
         )
+        if params.display_pnp:
+            title = f"PnP Matches ref frame {self.ref_.frame_id} with {self.curr_.frame_id}"
+            display.draw_matches(self.ref_.image, self.curr_.image, self.curr_.matches_with_map_, candidate_kpts, self.curr_.keypoints, title)
         
-        num_matches = len(curr_matches_with_map)
+        num_matches = len(self.curr_.matches_with_map_)
         print(f"Number of 3D-2D pairs: {num_matches}")
         
+        # -- Solve PnP, get T_world_to_camera
         pts_3d = []
         pts_2d = []
-        for match in curr_matches_with_map:
+        for i in range(num_matches):
+            match = self.curr_.matches_with_map_[i]
             mappoint = candidate_mappoints_in_map[match.queryIdx]
             pts_3d.append(mappoint.pos_)
-            pts_2d.append(self.curr_.keypoints_[match.trainIdx].pt)
-        
-        # Solve PnP
-        if len(pts_3d) < 5:
-            print(f"PnP num inlier matches: {len(pts_3d)}.")
-            self.curr_.T_w_c_ = self.prev_.T_w_c_.copy() if self.prev_ else np.eye(4)
-            return False
-        
-        K = self.curr_.camera_.K_
-        _, rvec, tvec, inliers = cv2.solvePnPRansac(
-            np.array(pts_3d),
-            np.array(pts_2d),
-            K,
-            None,
-            flags=cv2.SOLVEPNP_ITERATIVE
-        )
-        
-        if inliers is not None and len(inliers) >= 5:
-            R, _ = cv2.Rodrigues(rvec)
-            t = tvec
-            T = common.convert_rt_to_T(R, t)
-            self.curr_.T_w_c_ = np.linalg.inv(self.ref_.T_w_c_ @ T)
+            pts_2d.append(self.curr_.keypoints[match.trainIdx].pt)
+
+        kMinPtsForPnP = 5
+        max_possible_dist_to_prev_keyframe = params.max_possible_dist_to_prev_keyframe
+        is_pnp_good = num_matches >= kMinPtsForPnP
+        if is_pnp_good:
+            is_pnp_good, R_vec, t, pnp_inliers_mask = cv2.solvePnPRansac(
+                np.array(pts_3d), np.array(pts_2d), self.curr_.K, None,
+                useExtrinsicGuess=False, iterationsCount=100, reprojectionError=2.0, confidence=0.999
+            ) # reprojectionError=2.0, confidence=0.999
+
+            R, _ = cv2.Rodrigues(R_vec)  # Convert rotation vector to matrix
             
-            # Check relative motion with previous keyframe
-            if self.prev_:
-                T_prev = self.prev_.T_w_c_
-                dist = np.linalg.norm(T_prev[:3, 3] - self.curr_.T_w_c_[:3, 3])
-                max_dist = params.max_possible_dist_to_prev_keyframe
-                if dist >= max_dist:
-                    print(f"PnP: distance with prev keyframe is {dist:.3f}. Threshold is {max_dist:.3f}.")
-                    return False
-            return True
+            # -- Get inlier matches used in PnP
+            tmp_pts_2d = []
+            tmp_matches_with_map_ = []
+            num_inliers = pnp_inliers_mask.shape[0]
+            
+            for i in range(num_inliers):
+                good_idx = pnp_inliers_mask[i, 0]
+                # good match
+                match = self.curr_.matches_with_map_[good_idx]
+                tmp_matches_with_map_.append(match)
+                # good pts 2d
+                tmp_pts_2d.append(pts_2d[good_idx])
+                # good pts 3d
+                inlier_mappoint = candidate_mappoints_in_map[match.queryIdx]
+                inlier_mappoint.matched_times_ += 1
+                # Update graph info
+                self.curr_.inliers_to_mappt_connections_[match.trainIdx] = PtConn(-1, inlier_mappoint.id_)
+            
+            pts_2d = tmp_pts_2d
+            self.curr_.matches_with_map_ = tmp_matches_with_map_
+            # -- Update current camera pose
+            self.curr_.T_w_c_ = np.linalg.inv(common.convert_rt_to_T(R, t))
+            # -- Check relative motion with previous frame
+            R_prev, t_prev = common.get_rt_from_T(self.prev_.T_w_c_)
+            R_curr, t_curr = common.get_rt_from_T(self.curr_.T_w_c_)
+            dist_to_prev_keyframe = np.linalg.norm(t_prev - t_curr)
+            
+            if params.display_pnp: 
+                title = f"PnP Inlier Matches ref frame {self.ref_.frame_id} with {self.curr_.frame_id}"
+                display.draw_matches(self.ref_.image, self.curr_.image, self.curr_.matches_with_map_, candidate_kpts, self.curr_.keypoints, title)
+            if dist_to_prev_keyframe >= max_possible_dist_to_prev_keyframe:
+                print(f"PnP: distance with prev keyframe is {dist_to_prev_keyframe:.3f}. Threshold is {max_possible_dist_to_prev_keyframe:.3f}.")
+                is_pnp_good = False
+        
         else:
-            print(f"PnP failed with {len(inliers) if inliers is not None else 0} inliers.")
-            self.curr_.T_w_c_ = self.prev_.T_w_c_.copy() if self.prev_ else np.eye(4)
-            return False
-    
-    # Mapping Methods
-    def add_key_frame(self, State: State):
-        """
-        Add a keyframe to the map.
-        """
-        self.map_.insert_key_frame(State)
-        self.ref_ = State
-    
-    def push_curr_points_to_map(self):
-        """
-        Push current inlier points to the map.
-        """
-        if not self.curr_:
-            return
+            print(f"PnP num inlier matches: {num_matches}")
         
-        inliers_pts3d = self.curr_.inliers_pts3d_
-        T_w_curr = self.curr_.T_w_c_
-        descriptors = self.curr_.descriptors
-        # kpts_colors = self.curr_.kpts_colors_
-        matches_for_3d = self.curr_.inliers_matches_for_3d_
-        connections = self.curr_.inliers_to_mappt_connections_
+        if not is_pnp_good:
+            self.curr_.T_w_c_ = self.prev_.T_w_c_.copy()
         
-        for i, match in enumerate(matches_for_3d):
-            pt_idx = match.trainIdx
-            mappt_id = -1
-            
-            if self.ref_ and self.ref_.is_mappoint(match.queryIdx):
-                mappt_id = self.ref_.inliers_to_mappt_connections_[match.queryIdx].pt_map_idx
-            else:
-                world_pos = common.pre_translate_point3f(inliers_pts3d[i], T_w_curr)
-                descriptor = descriptors[pt_idx].copy()
-                # color = kpts_colors[pt_idx]
-                mappoint = MapPoint(
-                    pos=world_pos,
-                    descriptor=descriptor,
-                    norm=common.get_normalized_mat(world_pos - self.curr_.get_cam_center()),
-                    # r=color[0],
-                    # g=color[1],
-                    # b=color[2]
-                )
-                self.map_.insert_map_point(mappoint)
-                mappt_id = mappoint.id_
-            
-            connections[pt_idx] = {'queryIdx': match.queryIdx, 'pt_map_idx': mappt_id}
-    
+        return is_pnp_good
+
     def get_mappoints_in_current_view(self):
         """
         Retrieve map points that are visible in the current frame.
@@ -436,7 +373,7 @@ class VisualOdometry():
         
         for mappt_id, mappoint in self.map_.map_points_.items():
             # Transform point to camera frame
-            p_cam = common.pre_translate_point3f(mappoint.pos_, np.linalg.inv(self.curr_.T_w_c_))
+            p_cam = common.pre_translate_point3f(mappoint.pos_, np.linalg.inv(self.curr_.T_w_c_))  # T_c_w * p_w = p_c
             if p_cam[2] < 0:
                 continue
             
@@ -492,10 +429,10 @@ class VisualOdometry():
             v_camera_poses.append(frame.T_w_c_)
             
             for kpt_idx, conn in frame.inliers_to_mappt_connections_.items():
-                mappt_idx = conn['pt_map_idx']
+                mappt_idx = conn.pt_map_idx #conn['pt_map_idx']
                 if mappt_idx not in self.map_.map_points_:
                     continue
-                v_pts_2d[-1].append(frame.keypoints_[kpt_idx].pt)
+                v_pts_2d[-1].append(frame.keypoints[kpt_idx].pt)
                 v_pts_2d_to_3d_idx[-1].append(mappt_idx)
                 um_pts_3d_in_prev_frames[mappt_idx] = self.map_.map_points_[mappt_idx].pos_
                 if ith_frame_in_buff == kTotalFrames - 1:
@@ -507,19 +444,109 @@ class VisualOdometry():
         
         # Perform bundle adjustment
         pose_src = common.get_pos_from_T(self.curr_.T_w_c_)
-        # optimization.bundle_adjustment(
-        #     v_pts_2d, v_pts_2d_to_3d_idx, self.curr_.camera_.K_,
-        #     um_pts_3d_in_prev_frames, v_camera_poses,
-        #     information_matrix,
-        #     is_ba_fix_map_points, is_ba_update_map_points
-        # )
+        optimization.bundle_adjustment(
+            v_pts_2d, v_pts_2d_to_3d_idx, self.curr_.K,
+            um_pts_3d_in_prev_frames, v_camera_poses,
+            information_matrix,
+            is_ba_fix_map_points, is_ba_update_map_points
+        )
         
         # Print result
         pose_new = common.get_pos_from_T(self.curr_.T_w_c_)
         print(f"Cam pos: Before: {pose_src.flatten()}, After: {pose_new.flatten()}")
         print("Bundle adjustment finishes...\n")
     
-    # Utility Methods
+    # -----------------------------------------------
+    # ------------------- Mapping -------------------
+    def add_key_frame(self, State: State):
+        """
+        Add a keyframe to the map.
+        """
+        self.map_.insert_key_frame(State)
+        self.ref_ = State
+
+    def optimize_map(self):
+        """
+        Optimize the map by removing unreliable map points.
+        """
+        default_erase = 0.1
+        map_point_erase_ratio = default_erase
+        curr_frame = self.curr_.frame_id
+        to_erase = []
+        not_in_map = []
+        for map_id, mappoint in self.map_.map_points_.items():
+            # if not self.curr_.is_in_frame(mappoint.pos_):
+            #     to_erase.append(map_id)
+            #     not_in_map.append(map_id)
+            #     continue
+            
+            if mappoint.created_frame_ < curr_frame-20:
+                to_erase.append(map_id)
+                continue
+
+            match_ratio = mappoint.matched_times_ / mappoint.visible_times_
+            if match_ratio < map_point_erase_ratio:
+                to_erase.append(map_id)
+                continue
+            
+            # angle = self.get_view_angle(self.curr_, mappoint)
+            # if angle > (np.pi / 4):
+            #     to_erase.append(map_id)
+            #     continue
+
+        for map_id in to_erase:
+            del self.map_.map_points_[map_id]
+        
+        if len(self.map_.map_points_) > 1000:
+            map_point_erase_ratio += 0.05
+        else:
+            map_point_erase_ratio = default_erase
+        
+        print(f"Map points: {len(self.map_.map_points_)}")
+    
+    def push_curr_points_to_map(self):
+        """
+        Push current inlier points to the map.
+        """
+        if not self.curr_:
+            return
+        
+        inliers_pts3d = self.curr_.inliers_pts3d_
+        T_w_curr = self.curr_.T_w_c_
+        descriptors = self.curr_.descriptors
+        # kpts_colors = self.curr_.kpts_colors_
+        matches_for_3d = self.curr_.inliers_matches_for_3d_
+        connections = self.curr_.inliers_to_mappt_connections_
+        frame_time = self.curr_.frame_id
+        for i, match in enumerate(matches_for_3d):
+            pt_idx = match.trainIdx
+            mappt_id = -1
+            
+            if self.ref_ and self.ref_.is_mappoint(match.queryIdx):
+                mappt_id = self.ref_.inliers_to_mappt_connections_[match.queryIdx].pt_map_idx
+                if mappt_id in self.map_.map_points_:
+                    mappoint = self.map_.map_points_[mappt_id]
+                    # mappoint.descriptor_ = descriptors[pt_idx].copy()
+                    mappoint.created_frame_ = frame_time
+            else:
+                world_pos = common.pre_translate_point3f(inliers_pts3d[i], T_w_curr)
+                descriptor = descriptors[pt_idx].copy()
+                # color = kpts_colors[pt_idx]
+                mappoint = MapPoint(
+                    pos=world_pos,
+                    descriptor=descriptor,
+                    norm=common.get_normalized_mat(world_pos - self.curr_.get_cam_center()),
+                    frame_time=frame_time
+                    # r=color[0],
+                    # g=color[1],
+                    # b=color[2]
+                )
+                self.map_.insert_map_point(mappoint)
+                mappt_id = mappoint.id_
+            
+            # connections[pt_idx] = {'queryIdx': match.queryIdx, 'pt_map_idx': mappt_id} 
+            connections[pt_idx] = PtConn(match.queryIdx, mappt_id) # queryIdx is the id of keypoint in the first picture
+
     def get_view_angle(self, state: State, point: MapPoint) -> float:
         """
         Calculate the view angle between the camera and the map point.
@@ -528,3 +555,10 @@ class VisualOdometry():
         n = common.get_normalized_mat(n)
         dot_product = np.dot(n.flatten(), point.norm_.flatten())
         return np.arccos(dot_product)
+    
+    # ------------------- Utility Methods -------------------------- 
+    def get_motion_from_frame1to2(self, frame1: State, frame2: State): 
+        T_w_to_f1 = frame1.T_w_c_.copy()
+        T_w_to_f2 = frame2.T_w_c_.copy()
+        T_f1_to_f2 = np.linalg.inv(T_w_to_f1)@T_w_to_f2
+        return T_f1_to_f2

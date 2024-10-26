@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import os
 
 # Example points (ensure you replace this with your actual points)
 refpoints1 = np.array([[100, 150], [200, 250], [300, 350], [400, 450]], dtype=np.float32)
@@ -38,3 +39,40 @@ valid_indices = cv2.filterHomographyDecompByVisibleRefpoints(rotations, normals,
 
 # Print the valid indices
 print("Valid decomposition indices:", valid_indices)
+
+def convert_image(frame_id):
+    dir = "dataset/"  # Assuming the dataset is in the same directory as the code. Adjust as needed.  
+    filename = os.path.join(dir, f"amz_{frame_id:03d}.jpg")
+    if os.path.exists(filename):
+        image = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+        mask = np.zeros_like(image)
+        mask[25:600, :] = 255 # 75:600
+        mask[465:800, 550:1250] = 0
+        image = cv2.bitwise_and(image, mask)
+        return image
+    else:
+        print("Could not find image file ", filename)
+        return None
+
+def read_image(frame_id):
+    dir = "dataset/"  # Assuming the dataset is in the same directory as the code. Adjust as needed.  
+    filename = os.path.join(dir, f"amz_{frame_id:03d}.jpg")
+    if os.path.exists(filename):
+        image = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+    else:
+        print("Could not find image file ", filename)
+        image = None
+
+def write_image(image, index): 
+    dir = "new_data/"
+    filename = os.path.join(dir, f"{index:06d}.png")
+    cv2.imwrite(filename, image)
+    print("Image saved at ", filename)
+
+id_out = 0
+for frame_id in range(1, 159):  # Replace 101 with the total number of frames in the dataset
+    img = convert_image(frame_id)
+    if img is None:
+        continue
+    write_image(img, id_out)
+    id_out += 1

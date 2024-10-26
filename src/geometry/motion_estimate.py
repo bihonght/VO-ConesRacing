@@ -1,8 +1,8 @@
 import numpy as np
 import cv2
 
-from .epipolar import *
-from .camera import pixel_to_cam_norm_plane
+from geometry import epipolar
+from geometry import camera
 from common import common
 def helper_estimate_possible_relative_poses_by_epipolar_geometry(
     keypoints_1, keypoints_2, matches, K,             # Input
@@ -14,25 +14,25 @@ def helper_estimate_possible_relative_poses_by_epipolar_geometry(
     # pts_img2_all = convert_keypoints_to_point2f(keypoints_2)
     # pts_img1, pts_img2 = [], []
 
-    kpts_img1, kpts_img2 = extractPtsFromMatches(keypoints_1, keypoints_2, matches)
+    kpts_img1, kpts_img2 = epipolar.extractPtsFromMatches(keypoints_1, keypoints_2, matches)
     # pts_on_np1, pts_on_np2 = [], []
     num_matched = len(matches)
     kpts_on_np1 = np.empty((num_matched, 2))
     kpts_on_np2 = np.empty((num_matched, 2))
 
     for i in range(num_matched):
-        kpts_on_np1[i] = pixel_to_cam_norm_plane(kpts_img1[i], K)
-        kpts_on_np2[i] = (pixel_to_cam_norm_plane(kpts_img2[i], K))
+        kpts_on_np1[i] = camera.pixel_to_cam_norm_plane(kpts_img1[i], K)
+        kpts_on_np2[i] = (camera.pixel_to_cam_norm_plane(kpts_img2[i], K))
     
     # Estimate motion by Essential Matrix
     R_e, t_e, essential_matrix = None, None, None
     inliers_index_e = []
 
-    essential_matrix, R_e, t_e, inliers_index_e = estiMotionByEssential(
+    essential_matrix, R_e, t_e, inliers_index_e = epipolar.estiMotionByEssential(
         kpts_img1, kpts_img2, K)
 
     if is_print_res:
-        print_result_estimate_motion_by_essential(essential_matrix, inliers_index_e, R_e, t_e)
+        epipolar.print_result_estimate_motion_by_essential(essential_matrix, inliers_index_e, R_e, t_e)
 
     # Estimate motion by Homography Matrix (if enabled)
     R_h_list, t_h_list, normal_list = [], [], []
@@ -40,14 +40,14 @@ def helper_estimate_possible_relative_poses_by_epipolar_geometry(
     homography_matrix = None
 
     if is_calc_homo:
-        homography_matrix, R_h_list, t_h_list, normal_list, inliers_index_h = estiMotionByHomography(
+        homography_matrix, R_h_list, t_h_list, normal_list, inliers_index_h = epipolar.estiMotionByHomography(
             kpts_img1, kpts_img2, K)
-        R_h_list, t_h_list, normal_list = removeWrongRtOfHomography(kpts_on_np1, kpts_on_np2, inliers_index_h, R_h_list, t_h_list, normal_list)
+        R_h_list, t_h_list, normal_list = epipolar.removeWrongRtOfHomography(kpts_on_np1, kpts_on_np2, inliers_index_h, R_h_list, t_h_list, normal_list)
 
     num_h_solutions = len(R_h_list)
 
     if is_print_res and is_calc_homo:
-        print_result_estimate_motion_by_homography(homography_matrix, inliers_index_h, R_h_list, t_h_list, normal_list)
+        epipolar.print_result_estimate_motion_by_homography(homography_matrix, inliers_index_h, R_h_list, t_h_list, normal_list)
 
     # Combine the motions from Essential/Homography
     list_inliers = []
@@ -75,7 +75,7 @@ def helper_estimate_possible_relative_poses_by_epipolar_geometry(
 
     # Triangulation for all solutions
     for i in range(num_solutions):
-        pts3d_in_cam1 = doTriangulation(kpts_on_np1, kpts_on_np2, list_R[i], list_t[i], list_inliers[i])
+        pts3d_in_cam1 = epipolar.doTriangulation(kpts_on_np1, kpts_on_np2, list_R[i], list_t[i], list_inliers[i])
         sols_pts3d_in_cam1_by_triang.append(pts3d_in_cam1)
 
     # Change frame if needed
@@ -111,6 +111,41 @@ def helper_estimate_possible_relative_poses_by_epipolar_geometry(
     print(f"Best index = {best_sol}, which is [{'E' if best_sol == 0 else 'H'}].\n")
 
     return best_sol, list_R, list_t, list_matches, list_normal, sols_pts3d_in_cam1_by_triang
+
+def helper_esti_motion_by_essential(keypoints_1, keypoints_2, matches, K, is_print_res=False):
+    # Extract points from matches
+    pts_in_img1, pts_in_img2 = epipolar.extractPtsFromMatches(keypoints_1, keypoints_2, matches)
+    # Estimate motion by essential matrix
+    _, R, t, inliers_index = epipolar.estiMotionByEssential(pts_in_img1, pts_in_img2, K)
+    # Collect inlier matches
+    inlier_matches = [matches[idx] for idx in inliers_index]
+    return R, t, inlier_matches
+
+def helper_find_inlier_matches_by_epipolar_cons(keypoints_1, keypoints_2, matches, K):
+    # Estimate inlier matches using the essential matrix
+    _, _, inlier_matches = helper_esti_motion_by_essential(keypoints_1, keypoints_2, matches, K)
+    return inlier_matches
+
+def helper_triangulate_points(prev_kpts, curr_kpts, curr_inlier_matches, T_curr_to_prev, K):
+    """Wrapper to call triangulation with a 4x4 transformation matrix."""
+    R_curr_to_prev, t_curr_to_prev = common.get_rt_from_T(T_curr_to_prev)
+    return helper_triangulate_points_Rt(prev_kpts, curr_kpts, curr_inlier_matches, R_curr_to_prev, t_curr_to_prev, K) 
+
+def helper_triangulate_points_Rt(prev_kpts, curr_kpts, curr_inlier_matches, R_curr_to_prev, t_curr_to_prev, K):
+    """Triangulate points using rotation and translation matrices."""
+    # Extract matched keypoints and convert to camera normalized plane
+    pts_img1, pts_img2 = epipolar.extractPtsFromMatches(prev_kpts, curr_kpts, curr_inlier_matches)
+    pts_on_np1 = np.array([camera.pixel_to_cam_norm_plane(pt, K) for pt in pts_img1])
+    pts_on_np2 = np.array([camera.pixel_to_cam_norm_plane(pt, K) for pt in pts_img2])
+    # Set inlier 
+    inliers = []
+    for i in range(pts_img1.shape[0]):
+        inliers.append(i)
+    # Triangulate points
+    pts_3d_in_prev = epipolar.doTriangulation(pts_on_np1, pts_on_np2, R_curr_to_prev, t_curr_to_prev, inliers)
+    # Change 3D point positions to the current frame
+    pts_3d_in_curr = [common.trans_coord(pt3d, R_curr_to_prev, t_curr_to_prev) for pt3d in pts_3d_in_prev]
+    return pts_3d_in_curr
 
 def check_essential_score(E21, K, pts_img1, pts_img2, inliers_index, sigma=1):
     inliers_index_new = []
@@ -299,6 +334,60 @@ def print_epipolar_error_and_triangulation_result_by_common_inlier(
 
         print()
 
+def ransac_inliers_well_distributed_y(keypoints1, keypoints2, matches, 
+                                      num_bins=10, inliers_per_bin=8, 
+                                      reproj_threshold=20.0):
+    """
+    Perform RANSAC to find inliers matches and ensure they are well-distributed along the y-axis.
+    Parameters:
+    - keypoints1: List of cv2.KeyPoint objects from image1.
+    - keypoints2: List of cv2.KeyPoint objects from image2.
+    - matches: List of cv2.DMatch objects representing matches.
+    - num_bins: Number of bins to divide the y-axis into.
+    - inliers_per_bin: Number of inliers to select per bin.
+    - reproj_threshold: RANSAC reprojection threshold.
+    Returns:
+    - selected_inliers: List of cv2.DMatch objects representing the selected inliers.
+    """
+    if len(matches) < 4:
+        # RANSAC requires at least 4 matches to compute homography
+        print("Not enough matches to compute homography.")
+        return []
+    
+    kpts_img1, kpts_img2 = epipolar.extractPtsFromMatches(keypoints1, keypoints2, matches)
+    # Compute homography using RANSAC
+    H, mask = cv2.findHomography(kpts_img1, kpts_img2, cv2.RANSAC, reproj_threshold)
+    if mask is None:
+        print("Homography could not be computed.")
+        return []
+    mask = mask.ravel().astype(bool)
+    # Extract inlier matches
+    inlier_matches = [m for m, inlier in zip(matches, mask) if inlier]
+    if len(inlier_matches) == 0:
+        print("No inliers found.")
+        return []
+    # Get y-coordinates of inliers from image1
+    y_coords = [ keypoints1[m.queryIdx].pt[1] for m in inlier_matches ]
+    y_coords = np.array(y_coords)
+    # Define the bins for y-axis distribution
+    y_min, y_max = y_coords.min(), y_coords.max()
+    bins = np.linspace(y_min, y_max, num_bins + 1)
+    # Assign each inlier to a bin
+    bin_indices = np.digitize(y_coords, bins) - 1  # bin indices start at 0
+    # Initialize selected inliers list
+    selected_inliers = []
+    # For each bin, select up to inliers_per_bin matches
+    for i in range(num_bins):
+        # Find matches in the current bin
+        indices_in_bin = np.where(bin_indices == i)[0]
+        if len(indices_in_bin) == 0:
+            continue  # No matches in this bin
+        # Shuffle the indices to select random matches
+        np.random.shuffle(indices_in_bin)
+        # Select up to inliers_per_bin matches
+        selected_indices = indices_in_bin[:inliers_per_bin]
+        selected_inliers.extend([ inlier_matches[idx] for idx in selected_indices ])
+    return inlier_matches
 
 # Helper Functions (should be implemented):
 # - convert_keypoints_to_point2f

@@ -25,7 +25,7 @@ def cone3D_transform(P, M_tilde):
 
 def filter_out(cones_pixels, color_value): 
     cone_boxes = np.array([[u1, v1, u2, v2, color_value] for u1, v1, u2, v2 in cones_pixels
-                        if np.abs(v1 - v2) <= 1.5 * np.abs(u1 - u2)], dtype=int)
+                        if np.abs(v1 - v2) <= 1.55 * np.abs(u1 - u2)], dtype=int)
     if len(cone_boxes) == 0: 
         return np.empty((0,5), dtype=int)
     return cone_boxes

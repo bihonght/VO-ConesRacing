@@ -27,13 +27,13 @@ def main():
     prev_state = State()
     # curr_state = State() 
     H_count = 0
-    TOTAL_FRAME_COUNT = 159
+    TOTAL_FRAME_COUNT = 600
     Vo = VisualOdometry()
     print(os.getcwd())
 
-    for frame_count in range(1, TOTAL_FRAME_COUNT):
+    for frame_count in range(100, TOTAL_FRAME_COUNT):
         print("FRAME_COUNT : " + str(frame_count))
-        if frame_count == 10: 
+        if frame_count == 60: 
             break
         curr_state = State() 
         curr_state.read_image(frame_count)
@@ -42,24 +42,25 @@ def main():
         
         
         Vo.add_frame(curr_state)
-        if Vo.vo_state_ == 2: 
-            break
+        # if Vo.vo_state_ == 2: 
+        #     break
         # prev_state.kpoints, curr_state.kpoints = good_matches_features(prev_state.kpoints, curr_state.kpoints, mask)
 
         new_pose = np.column_stack((curr_state.T_w_c_))
         # new_pose = np.vstack((new_pose, np.array([0,0,0,1])))
-        camera_pose = camera_pose @ (new_pose)
+        print("New pose ===== :", Vo.curr_.T_w_c_)
+        # camera_pose = camera_pose @ (Vo.curr_.T_w_c_)
+        camera_pose = Vo.curr_.T_w_c_
         x_coord = camera_pose[0, -1]
         z_coord = camera_pose[2, -1]
-        plt.scatter(x_coord, -z_coord, color='b') 
+        plt.scatter(x_coord, z_coord, color='b') 
         plt.pause(0.00001)
-        # frm = cv2.resize(prev_state.image, (0,0), fx=0.5, fy=0.5)
+        # frm = cv2.resize(curr_state.image, (0,0), fx=0.5, fy=0.5)
         # cv2.imshow('Frame', frm)
 
         # Update the previous state
-        prev_state = curr_state
+        # prev_state = curr_state
     
-    print(H_count)
     cv2.destroyAllWindows()
     plt.show()
     end = time.process_time() - start

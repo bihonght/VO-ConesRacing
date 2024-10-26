@@ -112,7 +112,7 @@ def pts2keypts(pts):
     Returns:
         list of cv2.KeyPoint: A list of corresponding KeyPoint objects.
     """
-    keypts = [cv2.KeyPoint(x=pt[0], y=pt[1], _size=10) for pt in pts]
+    keypts = [cv2.KeyPoint(float(pt[0]), float(pt[1]), 10) for pt in pts]
     return keypts
 
 def get_normalized_mat(mat):
@@ -151,3 +151,13 @@ def calc_angle_between_two_vectors(vec1, vec2):
     angle = np.arccos(cos_angle)
     
     return angle
+
+def filter_out(cones_pixels, color_value): 
+    cone_boxes = np.array([[u1, v1, u2, v2, color_value] for u1, v1, u2, v2 in cones_pixels
+                        if np.abs(v1 - v2) <= 1.55 * np.abs(u1 - u2)], dtype=int)
+    if len(cone_boxes) == 0: 
+        return np.empty((0,5), dtype=int)
+    return cone_boxes
+
+def point_in_box(x, y, box):
+    return box[0]-10 <= x <= box[2]+10 and box[1]-10 <= y <= box[3]+10

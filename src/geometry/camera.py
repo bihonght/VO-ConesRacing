@@ -17,7 +17,7 @@ def cam_to_pixel(p, K):
     return np.array([
         K[0, 0] * p[0] / p[2] + K[0, 2],  # project x in pixel coordinates
         K[1, 1] * p[1] / p[2] + K[1, 2]   # project y in pixel coordinates
-    ])
+    ], dtype=float)
 
 def cam_to_pixel_mat(p, K): 
     # Convert 3D homogeneous coordinates to pixel coordinates

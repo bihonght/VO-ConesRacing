@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 class Map:
     def __init__(self):
         # Initialize keyframes and map points as dictionaries

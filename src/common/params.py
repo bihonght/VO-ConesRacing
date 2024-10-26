@@ -10,6 +10,10 @@ K = np.array([[2174.3363,  0.,  800],
               [0.,         2178.2863,   200],
               [0.,         0.,          1.]])
 
+# K = np.array([[7.188560000000e+02, 0, 6.071928000000e+02],
+#               [0, 7.188560000000e+02, 1.852157000000e+02],
+#               [0, 0, 1]])
+
 TOTAL_FRAME_COUNT = 159
 
 # ORB feature extraction
@@ -45,33 +49,35 @@ method_3_feature_dist_threshold = 50.0
 # Method 3 parameters:
 max_matching_pixel_dist_in_initialization = 100
 max_matching_pixel_dist_in_triangulation = 100
-max_matching_pixel_dist_in_pnp = 50
+max_matching_pixel_dist_in_pnp = 100 #c [50]
 
 # remove wrong matches
 kpts_uniform_selection_grid_size = 16
-kpts_uniform_selection_max_pts_per_grid = 8
+kpts_uniform_selection_max_pts_per_grid = 16
 
 # ------------------- RANSAC Essential matrix -------------------
-findEssentialMat_prob = 0.9999 # 0.999
-findEssentialMat_threshold = 0.9 #0.9  1.0
+findEssentialMat_prob = 0.999 #c            [0.999] 
+findEssentialMat_threshold = 0.9 #c [0.9  1.0]
 
 # ------------------- Triangulation -------------------
-min_triang_angle = 1.0
-max_ratio_between_max_angle_and_median_angle = 20
+min_triang_angle = 0.1 # 0.5 or [1.0] 
+max_ratio_between_max_angle_and_median_angle = 70
 
 # ------------------- Initialization -------------------
 
 min_inlier_matches = 15
-min_pixel_dist = 50
-min_median_triangulation_angle = 2.0
+min_pixel_dist = 45 # 45 or [50]
+min_median_triangulation_angle = 0.15 # 1.5 or [2.0]
 assumed_mean_pts_depth_during_vo_init = 0.8
-
+display_init_matches = 0
+display_init_matches_inliers = 1
 # ------------------- Tracking -------------------
-min_dist_between_two_keyframes = 0.03
-max_possible_dist_to_prev_keyframe = 0.3
-
+min_dist_between_two_keyframes = 0.02 #c min dist to be consider motion as large move # 0.02 or [0.03]
+max_possible_dist_to_prev_keyframe = 3.99 #c 0.45 or [0.3]
+display_pnp = 1 # debugging 
+display_tracking_triangular = 0 #
 # ------------------- Optimization -------------------
-is_enable_ba = True                # Use bundle adjustment for camera and points in single frame. 1 for true, 0 for false
+is_enable_ba = False                # Use bundle adjustment for camera and points in single frame. 1 for true, 0 for false
 num_prev_frames_to_opti_by_ba = 5      # <= 20. I set the "kBuffSize_" in "vo.h" as 20, so only previous 20 frames are stored.
 information_matrix = [1.0, 0.0, 0.0, 1.0] # "1.0 0.0 0.0 1.0"
 is_ba_fix_map_points = True # TO DEBUG: If I set it to true and optimize both camera pose and map points, there is huge error.

@@ -3,7 +3,7 @@ import numpy as np
 class MapPoint:
     factory_id_ = 0 # or 1
 
-    def __init__(self, pos, descriptor, norm, r=0, g=0, b=0):
+    def __init__(self, pos, descriptor, norm, frame_time, r=0, g=0, b=0):
         """
         Initializes a MapPoint instance.
 
@@ -22,11 +22,11 @@ class MapPoint:
         self.norm_ = np.array(norm, dtype=np.float32)
         self.color_ = [r, g, b]  # RGB color components
         self.descriptor_ = descriptor
-
+        self.created_frame_ = frame_time
         # Properties for local mapping
         self.good_ = True
-        self.matched_times_ = 0  # Being an inlier in pose estimation
-        self.visible_times_ = 0  # Being visible in the current frame
+        self.matched_times_ = 1  # Being an inlier in pose estimation
+        self.visible_times_ = 1  # Being visible in the current frame
 
     def set_pos(self, pos):
         """
