@@ -53,7 +53,7 @@ max_matching_pixel_dist_in_pnp = 100 #c [50]
 
 # remove wrong matches
 kpts_uniform_selection_grid_size = 16
-kpts_uniform_selection_max_pts_per_grid = 16
+kpts_uniform_selection_max_pts_per_grid = 8
 
 # ------------------- RANSAC Essential matrix -------------------
 findEssentialMat_prob = 0.999 #c            [0.999] 

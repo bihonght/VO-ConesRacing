@@ -100,8 +100,8 @@ def trans_coord(p: Union[np.ndarray, list, tuple], R: np.ndarray, t: np.ndarray)
     # Apply the transformation: p2 = R * p + t
     p2 = R @ p + t  # Matrix multiplication
     # Flatten the result to shape (3,)
-    # p2_flat = p2.flatten()
-    p2_flat = p2.reshape(3, 1)
+    p2_flat = p2.flatten()
+    # p2_flat = p2.reshape(3, 1)
     return p2_flat
 
 def pts2keypts(pts):

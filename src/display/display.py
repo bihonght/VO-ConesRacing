@@ -31,10 +31,22 @@ def draw_keypoints(image, keypoints):
     plt.axis('off')  # Hide axes
     # plt.show()
 
-def update_cone_location(fig, sc, cone_locations): 
+def update_cone_location(fig, sc, cone_locations, index_list=None): 
     colors = np.where(cone_locations[:, 3] == -2, 'yellow', 'blue')  # Yellow for -2, blue for -1
     sc.set_offsets(np.c_[cone_locations[:, 0], cone_locations[:, 2]])  # Update X and Z coordinates
     sc.set_color(colors)
+
+    ax = fig.gca()
+    for txt in ax.texts:
+        txt.remove()
+    trans = fig.transFigure.inverted()
+    # Add index labels for specific cone locations
+    if index_list is not None:
+        for pair in index_list:
+            i = pair[1]
+            x, z = cone_locations[i, 0], cone_locations[i, 2]  # Get X and Z coordinates for the cone
+            x_fig, z_fig = trans.transform((x, z))
+            ax.annotate(str(i), (x, z), textcoords="offset points", xytext=(5, 5), ha='center', fontsize=8, color='red')
     fig.canvas.draw_idle()
 
 def update_trajectory_plot(fig, ax, sc, x, z):
@@ -67,8 +79,8 @@ def init_trajectory_plot():
     line, = ax.plot([], [], 'b-', marker='o', label='Camera Trajectory')
     sc = ax.scatter([], [], color='b', marker='o', label='Camera Trajectory')
     # Set axis limits (adjust according to your scene)
-    ax.set_xlim([-50, 40])
-    ax.set_ylim([-30, 40])
+    ax.set_xlim([-70, 20])
+    ax.set_ylim([-20, 60])
     # Labels and title
     ax.set_xlabel('X axis')
     ax.set_ylabel('Z axis')
@@ -77,10 +89,7 @@ def init_trajectory_plot():
     return fig, ax, sc
 
 def print_R_t(R, t):
-    # Convert rotation matrix to rotation vector
     rvec, _ = cv2.Rodrigues(R)
-    
-    # Print the rotation vector and translation vector (transposed for compact printing)
     print("R_vec is:", rvec.T)
     print("t is:", t.T)
 

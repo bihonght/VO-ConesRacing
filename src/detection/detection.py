@@ -54,43 +54,41 @@ def matching_bouding_boxes(matches, curr_boxes, prev_boxes, curr_keypoints, prev
         curr_key_pt = curr_keypoints[match_pair.trainIdx]
         prev_box_id = find_box_containing(prev_boxes, prev_key_pt.pt[0], prev_key_pt.pt[1])
         curr_box_id = find_box_containing(curr_boxes, curr_key_pt.pt[0], curr_key_pt.pt[1])
-
         if prev_box_id!= -1 and curr_box_id!= -1:
             counts[prev_box_id, curr_box_id] += 1
         
-        # Determine the top B for each A / Determine the curr box id with highest matching for each prev box  
-        max_prev_boxes = np.zeros((N))
-        top_pick_for_prev = [[] for _ in range(N)]
-
-        for j in range(M): 
-            for i in range(N): 
-                if counts[i, j] > max_prev_boxes[i]:
-                    max_prev_boxes[i] = counts[i, j] # highest matching for each box in the previous
-                    top_pick_for_prev[i] = [j]
-                elif counts[i, j] == max_prev_boxes[i] and counts[i, j] > 0:
-                    top_pick_for_prev[i].append(j)
-
-        # Determine the top A for each B/ Determine the prev box id with highest matching for each curr box
-        max_curr_boxes = np.zeros((M))
-        top_pick_for_curr = [[] for _ in range(M)]
+    # Determine the top B for each A / Determine the curr box id with highest matching for each prev box  
+    max_prev_boxes = np.zeros((N))
+    top_pick_for_prev = [[] for _ in range(N)]
+    for j in range(M): 
         for i in range(N): 
-            for j in range(M): 
-                if counts[i, j] > max_curr_boxes[j]:
-                    max_curr_boxes[j] = counts[i, j]
-                    top_pick_for_curr[j] = [i]
-                elif counts[i, j] == max_curr_boxes[j] and counts[i, j] > 0:
-                    top_pick_for_curr[j].append(i)
+            if counts[i, j] > max_prev_boxes[i]:
+                max_prev_boxes[i] = counts[i, j] # highest matching for each box in the previous
+                top_pick_for_prev[i] = [j]
+            elif counts[i, j] == max_prev_boxes[i] and counts[i, j] > 0:
+                top_pick_for_prev[i].append(j)
 
-        selected_pairs = []
-        for i in range(N):
-            if max_prev_boxes[i] == 0:
-                continue
-            if len(top_pick_for_prev[i]) != 1: 
-                continue # multiple boxes matching for same index
-            
-            j = top_pick_for_prev[i][0]
-            if counts[i, j] == max_curr_boxes[j] and len(top_pick_for_curr[j]) == 1:
-                selected_pairs.append((i, j))
+    # Determine the top A for each B/ Determine the prev box id with highest matching for each curr box
+    max_curr_boxes = np.zeros((M))
+    top_pick_for_curr = [[] for _ in range(M)]
+    for i in range(N): 
+        for j in range(M): 
+            if counts[i, j] > max_curr_boxes[j]:
+                max_curr_boxes[j] = counts[i, j]
+                top_pick_for_curr[j] = [i]
+            elif counts[i, j] == max_curr_boxes[j] and counts[i, j] > 0:
+                top_pick_for_curr[j].append(i)
+
+    selected_pairs = []
+    for i in range(N):
+        if max_prev_boxes[i] == 0:
+            continue
+        if len(top_pick_for_prev[i]) != 1: 
+            continue # multiple boxes matching for same index
+        
+        j = top_pick_for_prev[i][0]
+        if counts[i, j] == max_curr_boxes[j] and len(top_pick_for_curr[j]) == 1:
+            selected_pairs.append((i, j))
     return selected_pairs
 
 def find_box_containing(boxes, x, y): 

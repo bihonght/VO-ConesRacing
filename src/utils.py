@@ -180,4 +180,34 @@ def find_matched_boxes(x1, y1, x2, y2, boxes1, boxes2):
             break
     return matched_boxes
 
+def save_current_data(new_R, new_t, cones3D, frame_count):
+    tx = new_t[0,0]
+    ty = -new_t[2,0]  # Due to the coordinate system mapping
+    # Extract theta from the rotation matrix new_R
+    theta = np.arctan2(new_R[1, 0], new_R[0, 0])
+    # Create the odom matrix
+    odom = np.array([
+        [tx, 1, frame_count + 1, frame_count],
+        [ty, 1, frame_count + 1, frame_count],
+        [theta, 1, frame_count + 1, frame_count]
+    ])
+
+    len_cones = cones3D.shape[0]
+    observations = np.ones((len_cones * 2, 4))
+
+    frame_val = frame_count + 1
+    cones_idx = np.arange(1, len_cones + 1)
     
+    for i in range(len_cones):
+        if (cones3D[i, 2] < 25):
+            observations[2 * i, 0] = cones3D[i, 0]
+            observations[2 * i + 1, 0] = cones3D[i, 2]
+            observations[2 * i:2 * i + 2, 1] = 2
+            observations[2 * i:2 * i + 2, 2] = cones_idx[i]
+            observations[2 * i:2 * i + 2, 3] = frame_val
+        else: 
+            observations[2*i : 2*i+2, 0] = -100
+    
+    observations = observations[observations[:,0]>-100, :]
+    perception_data = np.vstack((odom, observations))
+    return perception_data
