@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
 from typing import Union
+from scipy.io import savemat
+
 def inv_rt(R, t):
     T = convert_rt_to_T(R, t)
     R_inv, t_inv = get_rt_from_T(np.linalg.inv(T))
@@ -161,3 +163,83 @@ def filter_out(cones_pixels, color_value):
 
 def point_in_box(x, y, box):
     return box[0]-10 <= x <= box[2]+10 and box[1]-10 <= y <= box[3]+10
+
+def calc_cones_error(R, t, prev_cones_pos, curr_cones_pos, alpha=1, print_error=False, print_cones_updates=False):
+    prev_cone_pos_transformed = []
+    curr_cone_pos = []
+    total_err = 0
+    num_matching_cones = prev_cones_pos.shape[0]
+    for i in range(len(prev_cones_pos)):
+        prev_cone_pos = prev_cones_pos[i][:3]
+        transformed_p = trans_coord(prev_cone_pos, R, alpha*t)
+        prev_cone_pos_transformed.append(transformed_p)
+        curr_cone_pos.append(curr_cones_pos[i][:3])
+        total_err += np.linalg.norm(transformed_p[:3:2] - curr_cones_pos[i][:3:2])
+    if print_error: 
+        print(f"Scaling at {float(alpha):.2f} with error: {float(total_err/num_matching_cones):.2f}")
+    if print_cones_updates:  # print the transformed cones
+        print(np.asarray(prev_cone_pos_transformed))
+        print(np.asarray(curr_cone_pos))
+    return total_err
+
+def calc_weighted_error(transformed_cones, current_cones, x_weight=2.0, z_weight=1.0):
+    # Extract only X and Z components if points are in 3D
+    if transformed_cones.shape[1] == 3:
+        transformed_cones = transformed_cones[:, [0, 2]]
+    if current_cones.shape[1] == 3:
+        current_cones = current_cones[:, [0, 2]]
+    # Calculate weighted squared differences
+    x_diff_squared = (transformed_cones[:, 0] - current_cones[:, 0]) ** 2 * x_weight
+    z_diff_squared = (transformed_cones[:, 1] - current_cones[:, 1]) ** 2 * z_weight
+    # Sum the errors and normalize by the sum of weights
+    total_error = np.sum(x_diff_squared + z_diff_squared)
+    normalized_error = total_error / (x_weight + z_weight)
+    return normalized_error
+
+def current_data(R, new_t, cones3D, frame_count):
+    tx = new_t[0,0]
+    ty = -new_t[2,0]  # Due to the coordinate system mapping
+    # Extract theta from the rotation matrix new_R
+    theta_y = np.arctan2(-R[2, 0], np.sqrt(R[2, 1]**2 + R[2, 2]**2))
+    # Create the odom matrix
+    odom = np.array([
+        [tx, 1, frame_count, frame_count-1],
+        [ty, 1, frame_count, frame_count-1],
+        [theta_y, 1, frame_count, frame_count-1]
+    ])
+
+    len_cones = cones3D.shape[0]
+    observations = np.ones((len_cones * 2, 4))
+
+    frame_val = frame_count
+    # cones_idx = np.arange(1, len_cones + 1)
+    
+    for i in range(len_cones):
+        if (cones3D[i, 2] < 25):
+            observations[2 * i, 0] = cones3D[i, 0]
+            observations[2 * i + 1, 0] = cones3D[i, 2]
+            observations[2 * i:2 * i + 2, 1] = 2
+            observations[2 * i:2 * i + 2, 2] = cones3D[i, 4]
+            observations[2 * i:2 * i + 2, 3] = frame_val
+        else: 
+            observations[2*i : 2*i+2, 0] = -100
+    
+    observations = observations[observations[:,0]>-100, :]
+    perception_data = np.vstack((odom, observations))
+    return perception_data
+
+def save_slam_data(data, filename): 
+    data = np.concatenate(data, axis=0)
+    zeros_array = np.zeros((3, data.shape[1]))  # Create a row of zeros with the same shape as data
+    zeros_array[:, 1:3] = np.ones((3, 2)) #
+    data = np.vstack((zeros_array, data))
+    data = {
+    'FAE_motorsport': data
+    }
+    savemat(filename, data)
+    print('successfully saved data to %s' % filename)
+
+def calc_theta(R): 
+    theta = np.arctan2(-R[2, 0], np.sqrt(R[2, 1]**2 + R[2, 2]**2))
+    theta = (theta + np.pi / 2) % np.pi - np.pi / 2
+    return theta

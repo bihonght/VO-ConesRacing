@@ -3,144 +3,77 @@ import g2o
 import time
 import sophuspy as sophus
 from collections import defaultdict
+from scipy.optimize import minimize, least_squares
+from common import common
 
-def transT_cv2sophus(T_cv):
-    """
-    Convert a transformation matrix from OpenCV format to Sophus SE3.
+def find_optimal_alpha(previous_cones, current_cones, R, t, x_weight=2, z_weight=1):
+    def objective_function(alpha, previous_cones, current_cones, R, t):
+        scaled_t = t * alpha
+        total_error = 0.0
+        transformed_cones = (R @ previous_cones.T).T + scaled_t.flatten()
+        total_error = common.calc_weighted_error(transformed_cones, current_cones, x_weight=x_weight, z_weight=z_weight)
+        return total_error
+    initial_alpha = 1.0
+    result = minimize(objective_function, initial_alpha, args=(previous_cones, current_cones, R, t))
+    return result.x[0]  # Extract the scalar value for alpha
 
-    Args:
-        T_cv (np.ndarray): 4x4 transformation matrix in OpenCV format.
+def objective(params, previous_cones, current_cones,  x_weight, z_weight):
+    theta, t_x, t_z = params
+    # Construct 2D rotation matrix for angle theta
+    R_xz = np.array([
+        [np.cos(theta), np.sin(theta)],
+        [-np.sin(theta), np.cos(theta)]
+    ])
+    # Apply rotation and translation to previous_cones
+    transformed_cones = (R_xz @ previous_cones.T).T + np.array([t_x, t_z])
+    # Calculate the sum of squared errors
+    error = common.calc_weighted_error(transformed_cones, current_cones, x_weight=x_weight, z_weight=z_weight)
+    return error
 
-    Returns:
-        sophus.SE3: Transformation in Sophus SE3 format.
-    """
-    R = T_cv[:3, :3]
-    t = T_cv[:3, 3]
-    return sophus.SE3(R, t)
+def estimate_and_modify_rotation_translation(R, t, previous_cones_3d, current_cones_3d,  x_weight=1, z_weight=1, output_type='Rt'):
+    # Extract X and Z components of 3D points for 2D minimization
+    if previous_cones_3d.shape[1] > 2:
+        previous_cones_xz = previous_cones_3d[:, [0, 2]]
+        current_cones_xz = current_cones_3d[:, [0, 2]]
+    else:
+        previous_cones_xz = previous_cones_3d
+        current_cones_xz = current_cones_3d
+    # Initial guesses for theta, t_x, and t_z
+    initial_theta = common.calc_theta(R)  # Initial guess for rotation angle (in radians)
+    initial_t_x = t[0, 0]
+    initial_t_z = t[2, 0]
+    initial_params = [initial_theta, initial_t_x, initial_t_z]
+    # Minimize the objective function
+    result = minimize(objective, initial_params, args=(previous_cones_xz, current_cones_xz, x_weight, z_weight))
+    # Extract the optimized parameters
+    theta_opt, t_x_opt, t_z_opt = result.x
+    if output_type == 'Rt':
+        # Update the original 3D rotation matrix with the optimized theta
+        R_y = np.array([
+            [np.cos(theta_opt), 0, np.sin(theta_opt)],
+            [0, 1, 0],
+            [-np.sin(theta_opt), 0, np.cos(theta_opt)]
+        ])
+        R_modified = R_y
+        # Update the translation vector in the X and Z directions
+        t_modified = t.copy()
+        t_modified[0, 0] = t_x_opt
+        t_modified[2, 0] = t_z_opt
+        return R_modified, t_modified
+    else:
+        return t_x_opt, t_z_opt, theta_opt
 
-def transT_sophus2cv(T_sophus):
-    """
-    Convert a transformation from Sophus SE3 format to OpenCV 4x4 matrix.
-
-    Args:
-        T_sophus (sophus.SE3): Transformation in Sophus SE3 format.
-
-    Returns:
-        np.ndarray: 4x4 transformation matrix in OpenCV format.
-    """
-    R = T_sophus.rotation().matrix()  
-    t = T_sophus.translation()
-    T_cv = np.eye(4)
-    T_cv[:3, :3] = R
-    T_cv[:3, 3] = t
-    return T_cv
-
-
-def bundle_adjustment(v_pts_2d, v_pts_2d_to_3d_idx, K, pts_3d, v_camera_poses, information_matrix, is_fix_map_points, is_update_map_points):
-    """
-    Perform bundle adjustment to optimize camera poses and 3D points.
-
-    Args:
-        v_pts_2d (list of list of np.ndarray): 2D points observed in each frame.
-        v_pts_2d_to_3d_idx (list of list of int): Indices mapping 2D points to 3D points.
-        K (np.ndarray): Camera intrinsic matrix (3x3).
-        pts_3d (dict): Dictionary of 3D points.
-        v_camera_poses (list of np.ndarray): Initial camera poses.
-        information_matrix (np.ndarray): Information matrix for edge weights.
-        is_fix_map_points (bool): Whether to fix the 3D points during optimization.
-        is_update_map_points (bool): Whether to update 3D points after optimization.
-    """
-    num_frames = len(v_camera_poses)
-
-    # Convert camera poses to Sophus SE3 format
-    v_T_cam_to_world = [transT_cv2sophus(np.linalg.inv(v_camera_pose)) for v_camera_pose in v_camera_poses]
-
-    # Initialize g2o optimizer
-    optimizer = g2o.SparseOptimizer()
-    solver = g2o.BlockSolverSE3(g2o.LinearSolverDenseSE3())
-    solver = g2o.OptimizationAlgorithmLevenberg(solver)
-    optimizer.set_algorithm(solver)
-
-    # Add camera poses as vertices to the optimizer
-    g2o_poses = []
-    for i, T_cam_to_world in enumerate(v_T_cam_to_world):
-        pose_vertex = g2o.VertexSE3Expmap()
-        pose_vertex.set_id(i)
-        pose_vertex.set_estimate(g2o.SE3Quat(T_cam_to_world.rotationMatrix(), T_cam_to_world.translation()))
-        # if num_frames > 1 and i == num_frames - 1:
-        #     pose_vertex.set_fixed(True)  # Optionally fix the earliest frame
-        optimizer.add_vertex(pose_vertex)
-        g2o_poses.append(pose_vertex)
-
-    # Add camera intrinsics as parameter
-    camera = g2o.CameraParameters(K[0, 0], np.array([K[0, 2], K[1, 2]]), 0)
-    camera.set_id(0)
-    optimizer.add_parameter(camera)
-
-    # Add 3D points as vertices to the optimizer
-    g2o_points_3d = {}  # Dictionary to hold g2o vertices for 3D points
-    vertex_id = num_frames
-    pts3dID_to_vertexID = {}
-    for pt3d_id, pt in pts_3d.items():
-        point_vertex = g2o.VertexPointXYZ()
-        point_vertex.set_id(vertex_id)
-        point_vertex.set_estimate(pt)
-        if is_fix_map_points:
-            point_vertex.set_fixed(True)
-        point_vertex.set_marginalized(True)
-        optimizer.add_vertex(point_vertex)
-        g2o_points_3d[pt3d_id] = point_vertex
-        pts3dID_to_vertexID[pt3d_id] = vertex_id
-        vertex_id += 1
-
-    # Set information matrix
-    information_matrix_eigen = information_matrix
-
-    # Add edges representing the observations between camera poses and 3D points
-    edge_id = 0
-    for ith_frame in range(num_frames):
-        for j, p_2d in enumerate(v_pts_2d[ith_frame]):
-            pt3d_id = v_pts_2d_to_3d_idx[ith_frame][j]
-            point_vertex = optimizer.vertex(pts3dID_to_vertexID[pt3d_id])
-            pose_vertex = optimizer.vertex(ith_frame)
-
-            edge = g2o.EdgeProjectXYZ2UV()
-            edge.set_id(edge_id)
-            edge.set_vertex(0, point_vertex)  # XYZ point
-            edge.set_vertex(1, pose_vertex)   # Camera pose
-            edge.set_measurement(p_2d)
-            edge.set_parameter_id(0, 0)
-            edge.set_information(information_matrix_eigen)
-            edge.set_robust_kernel(g2o.RobustKernelHuber())
-            optimizer.add_edge(edge)
-            edge_id += 1
-
-    # Optimize the graph
-    optimizer.initialize_optimization()
-    optimizer.optimize(50)
-
-    print(f"BA: Number of frames = {num_frames}, 3d points = {vertex_id - num_frames}")
-
-    # Update camera poses and 3D points
-    for i, pose_vertex in enumerate(g2o_poses):
-        updated_pose = pose_vertex.estimate()
-        v_camera_poses[i][:] = np.linalg.inv(transT_sophus2cv(updated_pose))  # Update original camera pose
-
-    if is_update_map_points:
-        for pt3d_id, point_vertex in g2o_points_3d.items():
-            pts_3d[pt3d_id][:] = point_vertex.estimate()  # Update 3D points
-
-    print("Bundle adjustment finished.")
-
-
-
-
-
-
-
-
-
-
+def least_squares_alpha(previous_cones, current_cones, R, t):
+    numerator = 0.0
+    denominator = 0.0
+    for prev_p, curr_p in zip(previous_cones, current_cones):
+        transformed_p = R @ prev_p
+        diff = curr_p - transformed_p
+        numerator += t.T @ diff
+        denominator += np.linalg.norm(t)**2
+    # Compute the optimal alpha
+    alpha = numerator / denominator
+    return alpha
 
 
 

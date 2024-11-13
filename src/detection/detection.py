@@ -14,7 +14,7 @@ def keypoint_detect(model,img,img_size=80):
     tensor_output=output[1][0].cpu().data
     return tensor_output
 
-def bbox_detection(image, model, model_kpt):
+def bbox_detection(image, model):
     cone_types = [0, 1]   #   0: blue_cone 1: yellow_cone 2: orange_cone 3: large_orange_cone 4: unknown_cone
     conf_threshold = 0.75   # Set confidence threshold
 
@@ -30,19 +30,12 @@ def bbox_detection(image, model, model_kpt):
     for box, cls, conf in zip(boxes, classes, confidences):
         if int(cls) in cone_types and conf > conf_threshold:
             x1, y1, x2, y2 = map(int, box)
-            blue_boxes.extend([x1, y1, x2, y2]) if int(cls) == 0 else None
-            yellow_boxes.extend([x1, y1, x2, y2]) if int(cls) == 1 else None
-            # Detect keypoints using the keypoint model
-            cone_img = image[y1:y2, x1:x2]            
-            h, w, _ = cone_img.shape
-            i = 0
-            points = keypoint_detect(model_kpt, cone_img)
-            for pt in np.array(points):
-                x_original = int(pt[0] * w + x1)
-                y_original = int(pt[1] * h + y1)
-                i += 1
+            blue_boxes.append(np.array([x1, y1, x2, y2])) if int(cls) == 0 else None
+            yellow_boxes.append(np.array([x1, y1, x2, y2])) if int(cls) == 1 else None
+    
+    return np.asarray(blue_boxes), np.asarray(yellow_boxes)
 
-def matching_bouding_boxes(matches, curr_boxes, prev_boxes, curr_keypoints, prev_keypoints):
+def matching_bouding_boxes(matches, prev_boxes, curr_boxes, prev_keypoints, curr_keypoints):
     N = prev_boxes.shape[0]
     M = curr_boxes.shape[0]
     counts = np.zeros((N, M))
@@ -88,7 +81,7 @@ def matching_bouding_boxes(matches, curr_boxes, prev_boxes, curr_keypoints, prev
         
         j = top_pick_for_prev[i][0]
         if counts[i, j] == max_curr_boxes[j] and len(top_pick_for_curr[j]) == 1:
-            selected_pairs.append((i, j))
+            selected_pairs.append([i, j])
     return selected_pairs
 
 def find_box_containing(boxes, x, y): 
@@ -96,3 +89,20 @@ def find_box_containing(boxes, x, y):
         if box[0] <= x <= box[2] and box[1] <= y <= box[3]:
             return i
     return -1
+
+def pairing_cones(previous_cones, current_cones, pairs):
+    # cones locations with bboxes matching
+    if previous_cones is None or current_cones is None:
+        raise ValueError("No cones locations with bounding boxes found.")
+
+    prev_cones_pos_XZ = np.array([
+        previous_cones[pair[0]][:3] 
+        for pair in pairs 
+        if previous_cones[pair[0]][2] <= 25 and current_cones[pair[1]][2] <= 20
+    ])
+    curr_cones_pos_XZ = np.array([
+        current_cones[pair[1]][:3] 
+        for pair in pairs 
+        if previous_cones[pair[0]][2] <= 25 and current_cones[pair[1]][2] <= 20
+    ])
+    return prev_cones_pos_XZ, curr_cones_pos_XZ

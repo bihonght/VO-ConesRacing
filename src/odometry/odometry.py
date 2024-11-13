@@ -15,11 +15,13 @@ from common import params, common
 from geometry import motion_estimate, epipolar, feature_matching, camera
 from display import display
 from optimization import optimization
+from detection import detection
+
 # import optimization
 
 
 
-class VisualOdometry():
+class Odometry():
     class VOState(Enum):
         BLANK = 0
         DOING_INITIALIZATION = 1
@@ -83,8 +85,8 @@ class VisualOdometry():
         # -- Rename output
         inlier_matches: List[cv2.DMatch] = self.curr_.inliers_matches_with_ref_
         pts3d_in_curr: List[np.ndarray] = self.curr_.inliers_pts3d_
-        inliers_matches_for_3d: List[cv2.DMatch] = self.curr_.inliers_matches_for_3d_
-        T: np.ndarray = self.curr_.T_w_c_
+        inliers_matches_for_cones: List[cv2.DMatch] = self.curr_.inliers_matches_for_cones_
+        T = self.curr_.T_w_c_
         # -- Start: call this big function to compute everything
         # (1) motion from Essential & Homography,
         # (2) inliers indices,
@@ -92,8 +94,7 @@ class VisualOdometry():
         is_print_res = False
         is_frame_cam2_to_cam1 = True
         is_calc_homo = True
-        K: np.ndarray = self.curr_.K
-
+        K = params.K2
         # Call the helper function to estimate possible relative poses
         best_sol, list_R, list_t, list_matches, list_normal, sols_pts3d_in_cam1_by_triang = motion_estimate.helper_estimate_possible_relative_poses_by_epipolar_geometry(self.ref_.keypoints, 
                                                                                                                                                                          self.curr_.keypoints, 
@@ -107,45 +108,88 @@ class VisualOdometry():
         R_curr_to_prev = list_R[best_sol]
         t_curr_to_prev = list_t[best_sol]
         inlier_matches = list_matches[best_sol]
-        # -----
-        pts3d_in_cam1 = sols_pts3d_in_cam1_by_triang[best_sol]
-        pts3d_in_curr.clear()
-        # -----
-        for p1 in pts3d_in_cam1:
-            transformed_p = common.trans_coord(p1, R_curr_to_prev, t_curr_to_prev)
-            pts3d_in_curr.append(transformed_p)
+
+        inlier_matches_gms = feature_matching.removeDuplicatedMatches(inlier_matches + list(self.curr_.matches_gms_with_ref_))
+        self.curr_.cones_pairings_with_ref_ = detection.matching_bouding_boxes(inlier_matches_gms, self.ref_.cones, self.curr_.cones, self.ref_.keypoints, self.curr_.keypoints)
+        pair_prev_cones, pair_curr_cones = detection.pairing_cones(self.ref_.cones3D, self.curr_.cones3D, self.curr_.cones_pairings_with_ref_)
 
         # -- Compute camera pose
         Rt = common.convert_rt_to_T(R_curr_to_prev, t_curr_to_prev)
         T = self.ref_.T_w_c_ @ (Rt)
         self.curr_.T_w_c_ = T.copy()
         # Get points that are used for triangulating new map points
-        # modified updated #################################
         self.curr_.inliers_matches_with_ref_ = inlier_matches
         self.curr_.inliers_pts3d_ = pts3d_in_curr
-        # 
-        self.retain_good_triangulation_result()
-
-        N = len(self.curr_.inliers_pts3d_)
-        if N < 20:
-            print(f"After removing bad triangulation points, only {N} points remain. It's too few...")
-            return
-
         # Normalize Points Depth to 1
         
-        scale = optimization.least_squares_alpha(self.curr_.)
+        scale, success = self.check_motion_with_scale(pair_prev_cones, pair_curr_cones, R_curr_to_prev, t_curr_to_prev)
         t_curr_to_prev *= scale
         self.curr_.T_w_c_[0:3, 3] = self.curr_.T_w_c_[0:3, 3] * scale
 
-        for i, p in enumerate(self.curr_.inliers_pts3d_):
-            self.curr_.inliers_pts3d_[i] = common.scale_point_pos(p, scale)
         # Update camera pose after scaling
         Rt_scaled = common.convert_rt_to_T(R_curr_to_prev, t_curr_to_prev)
-        T_scaled = self.ref_.T_w_c_ @ np.linalg.inv(Rt_scaled)
+        T_scaled = self.ref_.T_w_c_ @ (Rt_scaled)
         self.curr_.T_w_c_ = T_scaled.copy()
         
         print("Motion and 3D points estimation completed successfully.")
 
+    def check_motion_with_scale(self, pair_prev_cones, pair_curr_cones, R_curr_to_prev, t_curr_to_prev):
+        # Rename input
+        prev_cones = pair_prev_cones
+        curr_cones = pair_curr_cones
+        R = R_curr_to_prev
+        t = t_curr_to_prev
+        
+        # Compute the scale
+        scale = optimization.least_squares_alpha(prev_cones, curr_cones, R, t)
+        default_error = common.calc_cones_error(R, t, prev_cones, curr_cones, alpha=1,  print_error=False, print_cones_updates=True)
+        error = common.calc_cones_error(R, t, prev_cones, curr_cones, alpha=scale, print_error=False, print_cones_updates=True)
+        # normalize error 
+        num_matching_cones = prev_cones.shape[0]
+        default_error /= num_matching_cones
+        error /= num_matching_cones
+        # Print error
+        print(f"Scaling : {scale}")
+        print(f"Scale error: {error:.2f} (default: {default_error:.2f})")
+        # Check if the scale is large
+        if error < default_error: 
+            success = True
+            scale = min(max(scale, 0.2), 1.8)
+            error = common.calc_cones_error(R, t, prev_cones, curr_cones, alpha=scale)
+            print(f"Scaling at {float(scale):.2f} with error: {float(error/num_matching_cones):.2f}")
+        elif error > 4:
+            print(f"Scaling : {scale}")
+            # print(f"Scaling > 4: {scale:.2f}. It's not efficient: > default.")
+            success = False
+            scale = min(max(scale, 0.2), 1.8)
+            error = common.calc_cones_error(R, t, prev_cones, curr_cones, alpha=scale)
+            print(f"Scaling at {scale:.2f} with error: {error}")
+        elif default_error < 4: # error > 0.6*default_error
+            scale = 1.0
+            print(f"Scaling success: {scale:.2f}. It's too small.")
+            success = True
+        return scale, success
+
+    
+# ------------------------------- Triangulation -------------------------------
+    # --------------------------------------------------
+    # -------------- Tracking Methods ------------------
+    def check_large_move_for_add_key_frame(self, curr: State, ref: State) -> bool:
+        """
+        Check if the movement between current frame and reference frame is large enough to add a keyframe.
+        """
+        T_key_to_curr = np.linalg.inv(ref.T_w_c_) @ curr.T_w_c_
+        R, t = common.get_rt_from_T(T_key_to_curr)
+        R_vec, _ = cv2.Rodrigues(R)
+        _, _, _, euler_angles = cv2.RQDecomp3x3(R)      
+        yaw = euler_angles[1]  # Rotation around Y-axis
+        min_dist = params.min_dist_between_two_keyframes
+        moved_dist = np.linalg.norm(t[:3:2])
+        rotated_angle = np.linalg.norm(R_vec)
+        
+        print(f"Wrt prev keyframe, relative dist = {moved_dist:.5f}, angle = {yaw:.5f}")
+        
+        return moved_dist > min_dist
     
     def is_vo_good_to_init(self) -> bool:
         """
@@ -157,7 +201,7 @@ class VisualOdometry():
         # Rename input
         init_kpts = self.ref_.keypoints
         curr_kpts = self.curr_.keypoints
-        matches = self.curr_.inliers_matches_for_3d_
+        matches = self.curr_.inliers_matches_with_ref_
         
         # Parameters (these should be configurable)
         min_inlier_matches = params.min_inlier_matches
@@ -172,92 +216,13 @@ class VisualOdometry():
         # Check Criteria 1: Mean distance between keypoints
         mean_dist = feature_matching.compute_mean_dist_between_keypoints(init_kpts, curr_kpts, matches)
         print(f"Pixel movement of matched keypoints: {mean_dist:.1f}. Threshold is {min_pixel_dist:.1f}")
-        criteria_1 = mean_dist > 40 #min_pixel_dist
+        criteria_1 = mean_dist > 15 #min_pixel_dist
         
         # Check Criteria 2: Median triangulation angle
-        angles = self.curr_.triangulation_angles_of_inliers_
-        if angles:
-            sorted_angles = sorted(angles)
-            N = len(sorted_angles)
-            mean_angle = sum(sorted_angles) / N
-            median_angle = sorted_angles[N // 2]
-            print(f"Triangulation angle: mean={mean_angle}, median={median_angle}, min={sorted_angles[0]}, max={sorted_angles[-1]}.")
-            print(f"    median_angle is {median_angle:.2f}, threshold is {min_median_triangulation_angle:.2f}.")
-            criteria_2 = median_angle > min_median_triangulation_angle
-        else:
-            criteria_2 = False
-            print("No triangulation angles available.")
         
-        return criteria_0 and criteria_1 and criteria_2
-    
-# ------------------------------- Triangulation -------------------------------
+        return criteria_0 and criteria_1 # and criteria_2
 
-    def retain_good_triangulation_result(self):
-        """
-        Remove bad triangulation points based on angles and ratios.
-        """
-        if not self.curr_:
-            return
-        
-        min_triang_angle = params.min_triang_angle
-        max_ratio = params.max_ratio_between_max_angle_and_median_angle
-        
-        angles = self.curr_.triangulation_angles_of_inliers_
-        pts3d_inlier_pts = self.curr_.inliers_pts3d_
-        
-        N = len(pts3d_inlier_pts)
-        if N==0: 
-            return
-        # Compute angles if not already computed
-        for i in range(N):
-            p_in_curr = pts3d_inlier_pts[i]
-            p_in_world = common.point3f_to_mat3x1(common.pre_translate_point3f(p_in_curr, self.curr_.T_w_c_))
-            vec_p_to_cam_curr = common.get_pos_from_T(self.curr_.T_w_c_) - p_in_world
-            vec_p_to_cam_prev = common.get_pos_from_T(self.ref_.T_w_c_) - p_in_world
-            angle = common.calc_angle_between_two_vectors(vec_p_to_cam_curr, vec_p_to_cam_prev)
-            angles.append(np.degrees(angle))
-
-        
-        sorted_angles = sorted(angles)
-        mean_angle = np.mean(sorted_angles)
-        median_angle = np.median(sorted_angles)
-        print(f"Triangulation angle: mean={mean_angle}, median={median_angle}, min={sorted_angles[0]}, max={sorted_angles[-1]}")
-            
-        # Get good triangulation points
-        old_inlier_points = self.curr_.inliers_pts3d_.copy()
-        self.curr_.inliers_pts3d_.clear()
-
-        old_angles = angles.copy()
-        angles.clear()
-        for i in range(N):
-            if old_angles[i] < min_triang_angle:# or old_angles[i] / median_angle > max_ratio:
-                continue
-            dmatch = self.curr_.inliers_matches_with_ref_[i]
-            self.curr_.inliers_matches_for_3d_.append(dmatch)
-            self.curr_.inliers_pts3d_.append(old_inlier_points[i])
-            angles.append(old_angles[i])
-        print(f"3D points before retain: {N}, after retain: {len(angles)}")
-        self.curr_.triangulation_angles_of_inliers_ = angles
-        return
-    # --------------------------------------------------
-    # -------------- Tracking Methods ------------------
-    def check_large_move_for_add_key_frame(self, curr: State, ref: State) -> bool:
-        """
-        Check if the movement between current frame and reference frame is large enough to add a keyframe.
-        """
-        T_key_to_curr = np.linalg.inv(ref.T_w_c_) @ curr.T_w_c_
-        R, t = common.get_rt_from_T(T_key_to_curr)
-        R_vec, _ = cv2.Rodrigues(R)
-        
-        min_dist = params.min_dist_between_two_keyframes
-        moved_dist = np.linalg.norm(t)
-        rotated_angle = np.linalg.norm(R_vec)
-        
-        print(f"Wrt prev keyframe, relative dist = {moved_dist:.5f}, angle = {rotated_angle:.5f}")
-        
-        return moved_dist > min_dist
-    
-    def pose_estimation_pnp(self) -> bool:
+    def pose_estimation(self) -> bool:
         """
         Estimate the camera pose using PnP.
         """

@@ -46,12 +46,16 @@ def update_cone_location(fig, sc, cone_locations, index_list=None):
             i = pair[1]
             x, z = cone_locations[i, 0], cone_locations[i, 2]  # Get X and Z coordinates for the cone
             x_fig, z_fig = trans.transform((x, z))
-            ax.annotate(str(i), (x, z), textcoords="offset points", xytext=(5, 5), ha='center', fontsize=8, color='red')
+            ax.annotate(str(cone_locations[i, 4]), (x, z), textcoords="offset points", xytext=(5, 5), ha='center', fontsize=8, color='red')
     fig.canvas.draw_idle()
 
-def update_trajectory_plot(fig, ax, sc, x, z):
+def update_trajectory_plot(fig, ax, sc, x, z, cones_sc=None, cones_x=None, cones_z=None):
     # Get the current data from the line object
     sc.set_offsets(np.c_[x, z])
+    sc.set_sizes([3] * len(x))
+    if cones_x is not None and cones_z is not None:
+        cones_sc.set_offsets(np.c_[cones_x, cones_z])
+        cones_sc.set_sizes([10] * len(cones_x))
     ax.relim()  # Recompute limits based on data
     ax.autoscale_view(True, True, True)
     fig.canvas.draw_idle()
@@ -64,7 +68,7 @@ def init_cone_plot():
     sc = ax.scatter(init_location[:, 0], init_location[:, 2])
     # Set axis limits (adjust according to your scene)
     ax.set_xlim([-15, 15])
-    ax.set_ylim([-5, 20])
+    ax.set_ylim([-5, 40])
     # Labels and title
     ax.set_xlabel('X axis')
     ax.set_ylabel('Z axis')
@@ -78,6 +82,7 @@ def init_trajectory_plot():
     # Initialize an empty line for the trajectory
     line, = ax.plot([], [], 'b-', marker='o', label='Camera Trajectory')
     sc = ax.scatter([], [], color='b', marker='o', label='Camera Trajectory')
+    cones_sc = ax.scatter([], [], color='r', marker='x', label='Cones')
     # Set axis limits (adjust according to your scene)
     ax.set_xlim([-70, 20])
     ax.set_ylim([-20, 60])
@@ -86,7 +91,7 @@ def init_trajectory_plot():
     ax.set_ylabel('Z axis')
     ax.set_title('Camera Trajectory on X-Z Plane')
     ax.legend()
-    return fig, ax, sc
+    return fig, ax, sc, cones_sc
 
 def print_R_t(R, t):
     rvec, _ = cv2.Rodrigues(R)

@@ -5,10 +5,13 @@ FEATURE_ORB = 1
 FEATURE_ORB_NEW = 1.5
 FEATURE_SHI_TOMASI = 2
 
-# K = np.loadtxt("K_matrix.txt")
 K = np.array([[2174.3363,  0.,  800],
               [0.,         2178.2863,   200],
               [0.,         0.,          1.]])
+
+K2 = np.array([[760.75395685,   0.        , 480.        ],
+       [  0.        , 566.06677175, 270.        ],
+       [  0.        ,   0.        ,   1.        ]])
 
 # K = np.array([[7.188560000000e+02, 0, 6.071928000000e+02],
 #               [0, 7.188560000000e+02, 1.852157000000e+02],
@@ -72,13 +75,19 @@ assumed_mean_pts_depth_during_vo_init = 0.8
 display_init_matches = 0
 display_init_matches_inliers = 1
 # ------------------- Tracking -------------------
-min_dist_between_two_keyframes = 0.02 #c min dist to be consider motion as large move # 0.02 or [0.03]
+min_dist_between_two_keyframes = 0.03 #c min dist to be consider motion as large move # 0.02 or [0.03]
 max_possible_dist_to_prev_keyframe = 3.99 #c 0.45 or [0.3]
 display_pnp = 1 # debugging 
 display_tracking_triangular = 0 #
 # ------------------- Optimization -------------------
-is_enable_ba = False                # Use bundle adjustment for camera and points in single frame. 1 for true, 0 for false
-num_prev_frames_to_opti_by_ba = 5      # <= 20. I set the "kBuffSize_" in "vo.h" as 20, so only previous 20 frames are stored.
-information_matrix = [1.0, 0.0, 0.0, 1.0] # "1.0 0.0 0.0 1.0"
-is_ba_fix_map_points = True # TO DEBUG: If I set it to true and optimize both camera pose and map points, there is huge error.
-# UPDATE_MAP_PTS: "" # This equals (!is_ba_fix_map_points) by default
+scale_factor_max = 2 # 1.8 - 2.5
+scale_factor_min = 0.1
+
+# ------------------- Data Association NN -------------------
+ConfidenceNN = 0.996 #5
+ConfidenceNewBeacon = 0.97 # 0.97
+
+dist_threshold = 3.68
+dist_threshold_for_match = 2.34 #2.45 #1 
+dist_threshold_for_new_beacon = 1.56 # 3.04 
+
