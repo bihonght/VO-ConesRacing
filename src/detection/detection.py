@@ -98,11 +98,11 @@ def pairing_cones(previous_cones, current_cones, pairs):
     prev_cones_pos_XZ = np.array([
         previous_cones[pair[0]][:3] 
         for pair in pairs 
-        if previous_cones[pair[0]][2] <= 25 and current_cones[pair[1]][2] <= 20
+        if previous_cones[pair[0]][2] <= 22 and current_cones[pair[1]][2] <= 20
     ])
     curr_cones_pos_XZ = np.array([
         current_cones[pair[1]][:3] 
         for pair in pairs 
-        if previous_cones[pair[0]][2] <= 25 and current_cones[pair[1]][2] <= 20
+        if previous_cones[pair[0]][2] <= 22 and current_cones[pair[1]][2] <= 20
     ])
     return prev_cones_pos_XZ, curr_cones_pos_XZ

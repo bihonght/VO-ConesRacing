@@ -215,7 +215,7 @@ def current_data(R, new_t, cones3D, frame_count):
     # cones_idx = np.arange(1, len_cones + 1)
     
     for i in range(len_cones):
-        if (cones3D[i, 2] < 25):
+        if (cones3D[i, 2] < 20):
             observations[2 * i, 0] = cones3D[i, 0]
             observations[2 * i + 1, 0] = cones3D[i, 2]
             observations[2 * i:2 * i + 2, 1] = 2

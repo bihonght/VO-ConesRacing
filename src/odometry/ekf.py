@@ -38,21 +38,21 @@ class EKF():
 
     def add_frame(self, frame):
         self.curr_ = frame
-        # if len(self.curr_.cones_pairings_with_ref_) < 1 or self.total_step > 5: 
-        #     localmap_P = self.covariance
-        #     localmap_st = self.st_global[:, [1, 0]].copy()
-        #     localmap_st[0:3, 0] = 0
-        #     output_dir = "./localmap"
-        #     os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
-        #     file_path = os.path.join(output_dir, f"localmap_{self.localmap_id}.mat")
-        #     savemat(file_path, {'localmap_P': localmap_P,
-        #                     'localmap_st': localmap_st
-        #                     })
-        #     self.st_global = np.zeros((3, 2), dtype="float64")
-        #     self.covariance = np.eye(3)*0.01
-        #     self.covariance[2,2] /= 100
-        #     self.total_step = 0
-        #     self.localmap_id += 1
+        if len(self.curr_.cones_pairings_with_ref_) < 0 or self.total_step > 200: 
+            localmap_P = self.covariance
+            localmap_st = self.st_global[:, [1, 0]].copy()
+            localmap_st[0:3, 0] = 0
+            output_dir = "./localmap"
+            os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
+            file_path = os.path.join(output_dir, f"localmap_{self.localmap_id}.mat")
+            savemat(file_path, {'localmap_P': localmap_P,
+                            'localmap_st': localmap_st
+                            })
+            self.st_global = np.zeros((3, 2), dtype="float64")
+            self.covariance = np.eye(3)*0.01
+            self.covariance[2,2] /= 100
+            self.total_step = 0
+            self.localmap_id += 1
 
         self.predict_step()
         match_local_map = self.data_association()

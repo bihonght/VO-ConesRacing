@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from utils import * 
-from vo.State import State
+from State import State
 from odom import compute_weighted_scale_factor, pixel_reproject_err
 def draw_match_boxes(matched_boxes, prev_frame, curr_frame): 
     fig, axes = plt.subplots(1, 2, figsize=(15, 10))

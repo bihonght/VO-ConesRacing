@@ -1,0 +1,6 @@
+9993511 9993506 9993513 9993512 9993514
+0: blue_cone
+1: yellow_cone
+2: large_orange_cone
+3: orange_cone
+4: unknown_cone

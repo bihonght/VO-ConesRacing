@@ -41,12 +41,12 @@ def update_cone_location(fig, sc, cone_locations, index_list=None):
         txt.remove()
     trans = fig.transFigure.inverted()
     # Add index labels for specific cone locations
-    if index_list is not None:
-        for pair in index_list:
-            i = pair[1]
-            x, z = cone_locations[i, 0], cone_locations[i, 2]  # Get X and Z coordinates for the cone
-            x_fig, z_fig = trans.transform((x, z))
-            ax.annotate(str(cone_locations[i, 4]), (x, z), textcoords="offset points", xytext=(5, 5), ha='center', fontsize=8, color='red')
+    # if index_list is not None:
+    #     for pair in index_list:
+    #         i = pair[1]
+    #         x, z = cone_locations[i, 0], cone_locations[i, 2]  # Get X and Z coordinates for the cone
+    #         x_fig, z_fig = trans.transform((x, z))
+    #         ax.annotate(str(cone_locations[i, 4]), (x, z), textcoords="offset points", xytext=(5, 5), ha='center', fontsize=8, color='red')
     fig.canvas.draw_idle()
 
 def update_trajectory_plot(fig, ax, sc, x, z, cones_sc=None, cones_x=None, cones_z=None):

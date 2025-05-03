@@ -1,0 +1,11 @@
+train: /Users/apple/Documents/UTS master/ROBOTIC/cone_detection_yoloV8/data_raw/train
+val: /Users/apple/Documents/UTS master/ROBOTIC/cone_detection_yoloV8/data_raw/test
+test: /Users/apple/Documents/UTS master/ROBOTIC/cone_detection_yoloV8/data_raw/test
+
+nc: 5
+names: 
+  0: blue_cone
+  1: yellow_cone
+  2: orange_cone
+  3: large_orange_cone
+  4: unknown_cone

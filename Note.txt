@@ -1,0 +1,29 @@
+param change: 
+
+max_matching_pixel_dist_in_pnp = 50 -> 100 
+
+findEssentialMat_prob = 0.999 #c            [0.999] 
+findEssentialMat_threshold = 1.0 #c [0.9  1.0]
+
+
+# ------------------- RANSAC Essential matrix -------------------
+findEssentialMat_prob = 0.999 #c            [0.999] 
+findEssentialMat_threshold = 1.0 #c [0.9  1.0]
+
+# ------------------- Triangulation -------------------
+min_triang_angle = 1.0->0.4
+max_ratio_between_max_angle_and_median_angle = 20
+
+check retain_good_triangulation_result()
+
+
+# ------------------- Initialization -------------------
+
+min_inlier_matches = 15
+min_pixel_dist = 50->45 # 45 or [50]
+min_median_triangulation_angle = 2.0->1.45 # 1.5 or [2.0]
+assumed_mean_pts_depth_during_vo_init = 0.8
+
+# ------------------- Tracking -------------------
+min_dist_between_two_keyframes = 0.03->0.015->0.00015 #c min dist to be consider motion as large move # 0.02 or [0.03]
+max_possible_dist_to_prev_keyframe = 0.45 #c 0.45 or [0.3]

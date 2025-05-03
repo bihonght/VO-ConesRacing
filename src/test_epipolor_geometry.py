@@ -4,20 +4,18 @@ import cv2
 from cv2.xfeatures2d import matchGMS
 import numpy as np
 import matplotlib.pyplot as plt
-from collections import defaultdict
 from ultralytics import YOLO
 
-from utils import * 
+# from utils import * 
 from vo.State import State
 from common import params, common
 from geometry import motion_estimate, epipolar, feature_matching
 from detection import detection
 import display.display as display
 from optimization import optimization
-from scipy.optimize import minimize, least_squares
-from scipy.io import savemat
 from odometry.ekf import EKF
 
+show_simulation = 1
 show_match = 0
 draw_bbox_pair = 0
 yolo_model = YOLO('model/weights/best.pt')
@@ -70,13 +68,12 @@ def main():
         matches_gms = matchGMS(prev_state.image.shape[:2], curr_state.image.shape[:2], prev_state.keypoints, curr_state.keypoints, matches, 
                                                 withScale=True, withRotation=False, thresholdFactor=4)
 
-        new_matches = feature_matching.removeDuplicatedMatches(matches + list(matches_gms))            
-
+        combine_matches = feature_matching.removeDuplicatedMatches(matches + list(matches_gms))
         prev_state.kpoints, curr_state.kpoints = epipolar.extractPtsFromMatches(prev_state.keypoints, curr_state.keypoints, matches)
         is_print_res, is_calc_homo, is_frame_change = False, True, True
         best_sol, list_R, list_t, list_matches, list_normal, sols_pts3d_in_cam1_by_triang = motion_estimate.helper_estimate_possible_relative_poses_by_epipolar_geometry(prev_state.keypoints, 
                                                                                                                                                                          curr_state.keypoints, 
-                                                                                                                                                                         new_matches, params.K,  is_print_res, 
+                                                                                                                                                                         matches, params.K,  is_print_res, 
                                                                                                                                                                          is_calc_homo, is_frame_change)
 
         print("++++++++++++++++ BEST +++++++++++++, ", best_sol)
@@ -84,9 +81,10 @@ def main():
             H_count += 1
 
         R_curr_to_prev, t_curr_to_prev = list_R[best_sol], list_t[best_sol]
-        matches = list_matches[best_sol]
-        print("+++++++ Number of R solution +++++++++", len(list_matches))
+        inlier_matches = list_matches[best_sol]
 
+        print("+++++++ Number of R solution +++++++++", len(list_matches))
+        new_matches = feature_matching.removeDuplicatedMatches(matches + list(matches_gms))            
         boxes_pair12 = detection.matching_bouding_boxes(new_matches, prev_state.cones, curr_state.cones,  prev_state.keypoints, curr_state.keypoints)
         curr_state.cones_pairings_with_ref_ = boxes_pair12
 
@@ -100,18 +98,19 @@ def main():
                 R_curr_to_prev = -R_curr_to_prev
                 t_curr_to_prev = -t_curr_to_prev
         
-        if len(boxes_pair12) > 0:
+        if len(boxes_pair12) > 1:
             pair_prev_cones, pair_curr_cones = detection.pairing_cones(prev_state.cones3D, curr_state.cones3D, boxes_pair12)
-            scipy_alpha = optimization.find_optimal_alpha(pair_prev_cones, pair_curr_cones, R_curr_to_prev, t_curr_to_prev, x_weight=3, z_weight=2)
+            scipy_alpha = optimization.find_optimal_alpha(pair_prev_cones, pair_curr_cones, R_curr_to_prev, t_curr_to_prev, x_weight=2, z_weight=1)
+            # scipy_alpha = optimization.least_squares_alpha(pair_prev_cones, pair_curr_cones, R_curr_to_prev, t_curr_to_prev)
             min_scale = params.scale_factor_min
             max_scale = params.scale_factor_max
             scale = max(min_scale, min(max_scale, scipy_alpha))
             ################ Scale translation ##################
-            default_error = common.calc_cones_error(R_curr_to_prev, t_curr_to_prev, pair_prev_cones, pair_curr_cones, alpha=1,  print_error=False, print_cones_updates=False)
+            default_error = common.calc_cones_error(R_curr_to_prev, t_curr_to_prev, pair_prev_cones, pair_curr_cones, alpha=1,  print_error=True, print_cones_updates=False)
             error = common.calc_cones_error(R_curr_to_prev, t_curr_to_prev, pair_prev_cones, pair_curr_cones, alpha=scale, print_error=True, print_cones_updates=False)
             Rt = common.convert_rt_to_T(R_curr_to_prev, t_curr_to_prev*scale)
             if pair_curr_cones.shape[0] > 1: 
-                newR, newT = optimization.estimate_and_modify_rotation_translation(R_curr_to_prev, t_curr_to_prev, pair_prev_cones, pair_curr_cones, x_weight=2, z_weight=1)
+                newR, newT = optimization.estimate_and_modify_rotation_translation(R_curr_to_prev, t_curr_to_prev*scale, pair_prev_cones, pair_curr_cones, x_weight=2, z_weight=1)
                 new_error = common.calc_cones_error(newR, newT, pair_prev_cones, pair_curr_cones, alpha=1, print_error=True, print_cones_updates=False)
                 if new_error < error:
                     Rt = common.convert_rt_to_T(newR, newT)
@@ -130,39 +129,42 @@ def main():
         # z_coord.append(-camera_pose[2, -1])
 
         if (1):
-            display.update_cone_location(fig_cones, sc_cones, curr_state.cones3D, index_list=boxes_pair12)
-            display.update_trajectory_plot(fig_traj, ax_traj, sc_traj, x_coord, z_coord) 
+            if show_simulation: 
+                display.update_cone_location(fig_cones, sc_cones, curr_state.cones3D, index_list=boxes_pair12)
+                display.update_trajectory_plot(fig_traj, ax_traj, sc_traj, x_coord, z_coord) 
             if show_match:
                 # display.draw_matches(prev_state.image, curr_state.image, list_matches[0], prev_state.keypoints, curr_state.keypoints, "Inliers Matching [E]")
                 display.draw_matches(prev_state.image, curr_state.image, matches, prev_state.keypoints, curr_state.keypoints, "Inliers Matching [E]")
                 display.draw_matches(prev_state.image, curr_state.image, matches_gms, prev_state.keypoints, curr_state.keypoints, "Inliers Matching [GMS]")
             if draw_bbox_pair: 
                 display.draw_match_boxes(boxes_pair12, prev_state, curr_state)
-        # plt.scatter(x_coord, -z_coord, color='b') 
-        plt.pause(0.00001)
         frm = cv2.resize(curr_state.image, (0,0), fx=0.5, fy=0.5)
         cv2.imshow('Frame', frm)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+        
         # Update the previous state
         prev_state = curr_state
 
+    #=================== EKF SLAM ======================
         movement_data = common.current_data(R_curr_to_prev, t_curr_to_prev, curr_state.cones3D, frame_count)
         curr_state.movement_and_observation_ = movement_data
         slam_data.append(movement_data)
         ekf.add_frame(curr_state)
+        if show_simulation: 
+            x_robot, z_robot = ekf.st_global[:2, 0]
+            landmarks = ekf.st_global[3:, 0].reshape(-1, 2)
+            x_coord.append(x_robot) 
+            z_coord.append(z_robot)
+            display.update_trajectory_plot(fig_traj, ax_traj, sc_traj, x_coord, z_coord, cones_sc, cones_x=landmarks[:, 0], cones_z=landmarks[:, 1]) 
+            plt.show()
 
-        x_robot, z_robot = ekf.st_global[:2, 0]
-        x_coord.append(x_robot)  # Example trajectory X
-        z_coord.append(z_robot)
-        landmarks = ekf.st_global[3:, 0].reshape(-1, 2)
-        display.update_trajectory_plot(fig_traj, ax_traj, sc_traj, x_coord, z_coord, cones_sc, cones_x=landmarks[:, 0], cones_z=landmarks[:, 1]) 
+    print("frame with less cone matching <=1 : ", bbox1)
 
-
-    print(bbox1)
+    print("TOTAL LOCAL MAPPING: " + str(ekf.localmap_id))
     # common.save_slam_data(slam_data, 'FAE_Slam.mat')
     cv2.destroyAllWindows()
-    plt.show()
+
     end = time.process_time() - start
     print("Time taken: ", end)
 

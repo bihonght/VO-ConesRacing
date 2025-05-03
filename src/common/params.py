@@ -80,8 +80,8 @@ max_possible_dist_to_prev_keyframe = 3.99 #c 0.45 or [0.3]
 display_pnp = 1 # debugging 
 display_tracking_triangular = 0 #
 # ------------------- Optimization -------------------
-scale_factor_max = 2 # 1.8 - 2.5
-scale_factor_min = 0.1
+scale_factor_max = 1.8 # 1.8 - 2.5
+scale_factor_min = 0.2
 
 # ------------------- Data Association NN -------------------
 ConfidenceNN = 0.996 #5
@@ -90,4 +90,3 @@ ConfidenceNewBeacon = 0.97 # 0.97
 dist_threshold = 3.68
 dist_threshold_for_match = 2.34 #2.45 #1 
 dist_threshold_for_new_beacon = 1.56 # 3.04 
-

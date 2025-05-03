@@ -8,12 +8,12 @@ from common import common
 
 def find_optimal_alpha(previous_cones, current_cones, R, t, x_weight=2, z_weight=1):
     def objective_function(alpha, previous_cones, current_cones, R, t):
-        scaled_t = t * alpha
+        scaled_t = t #* alpha
         total_error = 0.0
         transformed_cones = (R @ previous_cones.T).T + scaled_t.flatten()
         total_error = common.calc_weighted_error(transformed_cones, current_cones, x_weight=x_weight, z_weight=z_weight)
         return total_error
-    initial_alpha = 1.0
+    initial_alpha = 1
     result = minimize(objective_function, initial_alpha, args=(previous_cones, current_cones, R, t))
     return result.x[0]  # Extract the scalar value for alpha
 
