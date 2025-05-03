@@ -4,7 +4,7 @@ This is my graduate project for my Master degree and also for UTS Autonomous Rac
 
 A demo:  
 <p align = "center">
-  <img src = "https://github.com/bihonght/VO-ConesRacing/blob/main/media/demo.gif" height = "240px">
+  <img src = "https://github.com/bihonght/VO-ConesRacing/blob/main/media/demo.gif" height = "320px">
 </p>
 
 In the above figure:  
